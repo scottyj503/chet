@@ -1,0 +1,13 @@
+[package]
+name = "chet-terminal"
+description = "Terminal UI, streaming markdown renderer, and input handling for Chet"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+chet-types = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

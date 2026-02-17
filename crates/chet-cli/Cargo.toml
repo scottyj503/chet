@@ -1,0 +1,25 @@
+[package]
+name = "chet-cli"
+description = "CLI entry point and REPL for Chet"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "chet"
+path = "src/main.rs"
+
+[dependencies]
+chet-types = { workspace = true }
+chet-config = { workspace = true }
+chet-api = { workspace = true }
+chet-core = { workspace = true }
+chet-tools = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+futures-util = "0.3"

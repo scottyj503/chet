@@ -1,0 +1,61 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/chet-cli",
+    "crates/chet-core",
+    "crates/chet-api",
+    "crates/chet-tools",
+    "crates/chet-permissions",
+    "crates/chet-mcp",
+    "crates/chet-plugins",
+    "crates/chet-terminal",
+    "crates/chet-config",
+    "crates/chet-session",
+    "crates/chet-lsp",
+    "crates/chet-sandbox",
+    "crates/chet-types",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Scott Johnson"]
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Shared types & errors
+thiserror = "2"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP & networking
+reqwest = { version = "0.12", features = ["rustls-tls", "stream", "json"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Internal crates
+chet-types = { path = "crates/chet-types" }
+chet-config = { path = "crates/chet-config" }
+chet-api = { path = "crates/chet-api" }
+chet-core = { path = "crates/chet-core" }
+chet-tools = { path = "crates/chet-tools" }
+chet-permissions = { path = "crates/chet-permissions" }
+chet-terminal = { path = "crates/chet-terminal" }
+chet-session = { path = "crates/chet-session" }
+chet-mcp = { path = "crates/chet-mcp" }
+chet-plugins = { path = "crates/chet-plugins" }
+chet-lsp = { path = "crates/chet-lsp" }
+chet-sandbox = { path = "crates/chet-sandbox" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

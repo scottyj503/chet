@@ -1,0 +1,14 @@
+[package]
+name = "chet-sandbox"
+description = "Kernel-level sandboxing (Landlock, seccomp, macOS sandbox) for Chet"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+chet-types = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

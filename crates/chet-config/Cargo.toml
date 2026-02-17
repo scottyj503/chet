@@ -1,0 +1,17 @@
+[package]
+name = "chet-config"
+description = "Multi-tier TOML configuration for Chet"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+chet-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+dirs-next = "2"

@@ -1,0 +1,13 @@
+[package]
+name = "chet-types"
+description = "Shared types and error hierarchy for Chet"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
