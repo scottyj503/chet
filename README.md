@@ -9,6 +9,10 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 - **Streaming chat** — real-time SSE streaming from the Anthropic API
 - **Built-in tools** — Read, Write, Edit, Bash, Glob, Grep
 - **Agent loop** — automatic tool use cycles (Claude calls tools, gets results, continues)
+- **Permission system** — permit/block/prompt rules, before/after hooks, `--ludicrous` mode
+- **Session management** — auto-save, `--resume`, `/compact`, context tracking
+- **Prompt caching** — automatic cache control on system prompt and tool definitions
+- **Extended thinking** — opt-in via `--thinking-budget`
 - **REPL + print mode** — interactive or single-shot (`chet -p "explain this code"`)
 - **TOML config** — `~/.chet/config.toml` for persistent settings
 - **Single binary** — no runtime dependencies
@@ -35,24 +39,31 @@ chet -p "What does this project do?"
 chet [OPTIONS]
 
 Options:
-  -p, --print <PROMPT>           Send a single prompt and print the response
-      --model <MODEL>            Model to use (default: claude-sonnet-4-5-20250929)
-      --max-tokens <MAX_TOKENS>  Maximum tokens in the response
-      --api-key <API_KEY>        API key (overrides ANTHROPIC_API_KEY)
-      --verbose                  Enable debug logging
-  -h, --help                     Print help
-  -V, --version                  Print version
+  -p, --print <PROMPT>                 Send a single prompt and print the response
+      --model <MODEL>                  Model to use (default: claude-sonnet-4-5-20250929)
+      --max-tokens <MAX_TOKENS>        Maximum tokens in the response
+      --api-key <API_KEY>              API key (overrides ANTHROPIC_API_KEY)
+      --resume <SESSION_ID>            Resume a previous session by ID or prefix
+      --thinking-budget <TOKENS>       Enable extended thinking with token budget
+      --ludicrous                      Skip all permission checks
+      --verbose                        Enable debug logging
+  -h, --help                           Print help
+  -V, --version                        Print version
 ```
 
 ### REPL Commands
 
-| Command  | Description              |
-|----------|--------------------------|
-| `/help`  | Show available commands  |
-| `/model` | Show current model       |
-| `/cost`  | Show token usage         |
-| `/clear` | Clear conversation       |
-| `/quit`  | Exit                     |
+| Command              | Description                              |
+|----------------------|------------------------------------------|
+| `/help`              | Show available commands                  |
+| `/model`             | Show current model                       |
+| `/cost`              | Show token usage                         |
+| `/context`           | Show detailed context window usage       |
+| `/compact`           | Compact conversation (archive + summarize) |
+| `/sessions`          | List saved sessions                      |
+| `/resume <prefix>`   | Resume a saved session by ID prefix      |
+| `/clear`             | Clear conversation (starts new session)  |
+| `/quit`              | Exit                                     |
 
 ## Configuration
 
@@ -63,6 +74,21 @@ Create `~/.chet/config.toml`:
 model = "claude-sonnet-4-5-20250929"
 max_tokens = 16384
 # api_key = "sk-ant-..."  # prefer ANTHROPIC_API_KEY env var
+# thinking_budget = 10000  # enable extended thinking
+
+[[permissions.rules]]
+tool = "Read"
+level = "permit"
+
+[[permissions.rules]]
+tool = "Bash"
+args = "command:rm *"
+level = "block"
+
+[[hooks]]
+event = "before_tool"
+command = "/usr/local/bin/audit.sh"
+timeout_ms = 5000
 ```
 
 ## Architecture
@@ -77,8 +103,8 @@ Chet is a Cargo workspace with focused crates:
 | `chet-tools` | Tool trait + built-in tools (Read, Write, Edit, Bash, Glob, Grep) |
 | `chet-config` | Multi-tier TOML settings |
 | `chet-types` | Shared types, error hierarchy |
-| `chet-permissions` | Hook system, permit/block/prompt rules *(planned)* |
-| `chet-session` | Persistence, context windowing *(planned)* |
+| `chet-permissions` | Permission engine, rule matcher, hook runner |
+| `chet-session` | Session persistence, context tracking, compaction |
 | `chet-terminal` | Streaming markdown renderer *(planned)* |
 | `chet-mcp` | MCP client *(planned)* |
 | `chet-plugins` | Plugin system *(planned)* |
@@ -91,7 +117,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Test (26 tests)
+# Test (82 tests)
 cargo test --workspace
 
 # Clippy
