@@ -29,10 +29,7 @@ impl PromptHandler for TerminalPromptHandler {
                 if !input_summary.is_empty() {
                     let _ = writeln!(err, "  {input_summary}");
                 }
-                let _ = write!(
-                    err,
-                    "  [y] Allow once  [a] Always allow  [n] Deny  > "
-                );
+                let _ = write!(err, "  [y] Allow once  [a] Always allow  [n] Deny  > ");
                 let _ = err.flush();
 
                 let mut input = String::new();

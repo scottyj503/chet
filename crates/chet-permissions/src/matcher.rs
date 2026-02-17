@@ -46,16 +46,10 @@ impl RuleMatcher {
         }
 
         // block > permit > prompt
-        if matching
-            .iter()
-            .any(|r| r.level == PermissionLevel::Block)
-        {
+        if matching.iter().any(|r| r.level == PermissionLevel::Block) {
             return Some(PermissionLevel::Block);
         }
-        if matching
-            .iter()
-            .any(|r| r.level == PermissionLevel::Permit)
-        {
+        if matching.iter().any(|r| r.level == PermissionLevel::Permit) {
             return Some(PermissionLevel::Permit);
         }
         Some(PermissionLevel::Prompt)

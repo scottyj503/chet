@@ -107,11 +107,7 @@ impl PermissionEngine {
     }
 
     /// Run hooks for the given event.
-    pub async fn run_hooks(
-        &self,
-        event: &HookEvent,
-        hook_input: &HookInput,
-    ) -> Result<(), String> {
+    pub async fn run_hooks(&self, event: &HookEvent, hook_input: &HookInput) -> Result<(), String> {
         if self.ludicrous {
             return Ok(());
         }

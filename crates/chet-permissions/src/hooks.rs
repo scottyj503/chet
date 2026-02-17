@@ -147,7 +147,9 @@ mod tests {
     #[tokio::test]
     async fn test_hook_receives_json_stdin() {
         // Hook reads stdin and exits 0 if it got valid JSON
-        let hooks = vec![test_hook("python3 -c 'import sys, json; json.load(sys.stdin)'")];
+        let hooks = vec![test_hook(
+            "python3 -c 'import sys, json; json.load(sys.stdin)'",
+        )];
         let result = run_hooks(&hooks, &HookEvent::BeforeTool, &test_input()).await;
         // This may fail if python3 isn't available, so just check it doesn't panic
         let _ = result;
