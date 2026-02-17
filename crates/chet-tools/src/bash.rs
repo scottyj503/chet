@@ -184,6 +184,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    #[cfg(unix)]
     fn test_ctx() -> ToolContext {
         ToolContext {
             cwd: std::env::temp_dir(),
