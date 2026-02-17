@@ -49,6 +49,7 @@ impl Tool for EditTool {
                     }
                 }
             }),
+            cache_control: None,
         }
     }
 

@@ -38,6 +38,7 @@ impl Tool for WriteTool {
                     }
                 }
             }),
+            cache_control: None,
         }
     }
 

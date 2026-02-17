@@ -43,6 +43,7 @@ impl Tool for GlobTool {
                     }
                 }
             }),
+            cache_control: None,
         }
     }
 

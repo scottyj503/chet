@@ -65,6 +65,7 @@ impl Tool for BashTool {
                     }
                 }
             }),
+            cache_control: None,
         }
     }
 

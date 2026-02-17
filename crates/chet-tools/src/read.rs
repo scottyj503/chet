@@ -48,6 +48,7 @@ impl Tool for ReadTool {
                     }
                 }
             }),
+            cache_control: None,
         }
     }
 

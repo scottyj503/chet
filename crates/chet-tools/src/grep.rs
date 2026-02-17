@@ -85,6 +85,7 @@ impl Tool for GrepTool {
                     }
                 }
             }),
+            cache_control: None,
         }
     }
 

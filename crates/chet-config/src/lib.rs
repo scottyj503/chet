@@ -22,6 +22,7 @@ pub struct ChetConfig {
     pub model: String,
     pub max_tokens: u32,
     pub api_base_url: String,
+    pub thinking_budget: Option<u32>,
     pub config_dir: PathBuf,
     pub permission_rules: Vec<chet_permissions::PermissionRule>,
     pub hooks: Vec<chet_permissions::HookConfig>,
@@ -51,6 +52,7 @@ pub struct ApiSettings {
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
     pub base_url: Option<String>,
+    pub thinking_budget: Option<u32>,
 }
 
 /// CLI overrides that take highest precedence.
@@ -59,6 +61,7 @@ pub struct CliOverrides {
     pub api_key: Option<String>,
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
+    pub thinking_budget: Option<u32>,
 }
 
 impl ChetConfig {
@@ -102,11 +105,17 @@ impl ChetConfig {
             .or(global_settings.api.base_url)
             .unwrap_or_else(|| DEFAULT_API_BASE_URL.to_string());
 
+        // Resolve thinking budget: CLI > config > None
+        let thinking_budget = overrides
+            .thinking_budget
+            .or(global_settings.api.thinking_budget);
+
         Ok(ChetConfig {
             api_key,
             model,
             max_tokens,
             api_base_url,
+            thinking_budget,
             permission_rules: global_settings.permissions.rules,
             hooks: global_settings.hooks,
             config_dir,

@@ -7,8 +7,8 @@ use chet_permissions::{
 };
 use chet_tools::ToolRegistry;
 use chet_types::{
-    ContentBlock, ContentDelta, CreateMessageRequest, Message, Role, StopReason, StreamEvent,
-    ToolContext, ToolOutput, ToolResultContent, Usage,
+    CacheControl, ContentBlock, ContentDelta, CreateMessageRequest, Message, Role, StopReason,
+    StreamEvent, SystemContent, ThinkingConfig, ToolContext, ToolOutput, ToolResultContent, Usage,
 };
 use futures_util::StreamExt;
 use std::path::PathBuf;
@@ -49,6 +49,7 @@ pub struct Agent {
     model: String,
     max_tokens: u32,
     system_prompt: Option<String>,
+    thinking_budget: Option<u32>,
     cwd: PathBuf,
 }
 
@@ -68,12 +69,17 @@ impl Agent {
             model,
             max_tokens,
             system_prompt: None,
+            thinking_budget: None,
             cwd,
         }
     }
 
     pub fn set_system_prompt(&mut self, prompt: String) {
         self.system_prompt = Some(prompt);
+    }
+
+    pub fn set_thinking_budget(&mut self, budget: u32) {
+        self.thinking_budget = Some(budget);
     }
 
     /// Run the agent loop: send messages, handle tool calls, repeat until done.
@@ -91,14 +97,46 @@ impl Agent {
         let mut total_usage = Usage::default();
 
         for _loop_iter in 0..MAX_TOOL_LOOPS {
+            // Build system prompt with cache control
+            let system = self.system_prompt.as_ref().map(|text| {
+                vec![SystemContent {
+                    content_type: "text",
+                    text: text.clone(),
+                    cache_control: Some(CacheControl::ephemeral()),
+                }]
+            });
+
+            // Build tool definitions with cache control on the last tool
+            let tools = {
+                let mut defs = self.registry.definitions();
+                if let Some(last) = defs.last_mut() {
+                    last.cache_control = Some(CacheControl::ephemeral());
+                }
+                Some(defs)
+            };
+
+            // Build thinking config if budget is set
+            let (thinking, temperature) = if let Some(budget) = self.thinking_budget {
+                (
+                    Some(ThinkingConfig {
+                        thinking_type: "enabled".to_string(),
+                        budget_tokens: Some(budget),
+                    }),
+                    Some(1.0),
+                )
+            } else {
+                (None, None)
+            };
+
             let request = CreateMessageRequest {
                 model: self.model.clone(),
                 max_tokens: self.max_tokens,
                 messages: messages.clone(),
-                system: self.system_prompt.clone(),
-                tools: Some(self.registry.definitions()),
+                system,
+                tools,
                 stop_sequences: None,
-                temperature: None,
+                temperature,
+                thinking,
                 stream: true,
             };
 
@@ -114,6 +152,9 @@ impl Agent {
             let mut current_tool_name = String::new();
             let mut current_tool_id = String::new();
             let mut current_tool_json = String::new();
+            let mut current_thinking = String::new();
+            let mut current_signature = String::new();
+            let mut in_thinking_block = false;
             let mut stop_reason = None;
 
             while let Some(event) = stream.next().await {
@@ -126,6 +167,14 @@ impl Agent {
                         ..
                     }) => {
                         current_text.clear();
+                    }
+                    Ok(StreamEvent::ContentBlockStart {
+                        content_block: ContentBlock::Thinking { .. },
+                        ..
+                    }) => {
+                        current_thinking.clear();
+                        current_signature.clear();
+                        in_thinking_block = true;
                     }
                     Ok(StreamEvent::ContentBlockStart {
                         content_block: ContentBlock::ToolUse { id, name, .. },
@@ -148,18 +197,34 @@ impl Agent {
                             current_tool_json.push_str(&partial_json);
                         }
                         ContentDelta::ThinkingDelta { thinking } => {
-                            on_event(AgentEvent::ThinkingDelta(thinking));
+                            on_event(AgentEvent::ThinkingDelta(thinking.clone()));
+                            current_thinking.push_str(&thinking);
                         }
-                        _ => {}
+                        ContentDelta::SignatureDelta { signature } => {
+                            current_signature.push_str(&signature);
+                        }
                     },
                     Ok(StreamEvent::ContentBlockStop { .. }) => {
-                        if !current_text.is_empty() {
+                        if in_thinking_block {
+                            if !current_thinking.is_empty() {
+                                content_blocks.push(ContentBlock::Thinking {
+                                    thinking: current_thinking.clone(),
+                                    signature: if current_signature.is_empty() {
+                                        None
+                                    } else {
+                                        Some(current_signature.clone())
+                                    },
+                                });
+                            }
+                            current_thinking.clear();
+                            current_signature.clear();
+                            in_thinking_block = false;
+                        } else if !current_text.is_empty() {
                             content_blocks.push(ContentBlock::Text {
                                 text: current_text.clone(),
                             });
                             current_text.clear();
-                        }
-                        if !current_tool_id.is_empty() {
+                        } else if !current_tool_id.is_empty() {
                             let input_value: serde_json::Value =
                                 serde_json::from_str(&current_tool_json).unwrap_or_default();
                             content_blocks.push(ContentBlock::ToolUse {

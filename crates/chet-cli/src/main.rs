@@ -38,6 +38,10 @@ struct Cli {
     #[arg(long)]
     api_key: Option<String>,
 
+    /// Enable extended thinking with the given token budget
+    #[arg(long)]
+    thinking_budget: Option<u32>,
+
     /// Enable verbose/debug logging
     #[arg(long)]
     verbose: bool,
@@ -65,6 +69,7 @@ async fn main() -> Result<()> {
         api_key: cli.api_key,
         model: cli.model,
         max_tokens: cli.max_tokens,
+        thinking_budget: cli.thinking_budget,
     })
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -124,6 +129,9 @@ fn create_agent(
         cwd.to_path_buf(),
     );
     agent.set_system_prompt(system_prompt(cwd));
+    if let Some(budget) = config.thinking_budget {
+        agent.set_thinking_budget(budget);
+    }
     agent
 }
 
@@ -156,10 +164,15 @@ async fn repl(
 
     let stdin = io::stdin();
 
+    let thinking_info = match config.thinking_budget {
+        Some(budget) => format!(", thinking: {budget} tokens"),
+        None => String::new(),
+    };
     eprintln!(
-        "chet v{} (model: {}, session: {})",
+        "chet v{} (model: {}{}, session: {})",
         env!("CARGO_PKG_VERSION"),
         config.model,
+        thinking_info,
         session.short_id()
     );
     eprintln!("Type your message. Press Ctrl+D to exit.\n");
@@ -399,7 +412,10 @@ async fn run_agent(agent: &Agent, messages: &mut Vec<Message>) -> Result<Usage> 
                 let _ = write!(out, "{text}");
                 let _ = out.flush();
             }
-            AgentEvent::ThinkingDelta(_) => {}
+            AgentEvent::ThinkingDelta(text) => {
+                let _ = write!(io::stderr(), "\x1b[2m{text}\x1b[0m");
+                let _ = io::stderr().flush();
+            }
             AgentEvent::ToolStart { name, .. } => {
                 let _ = writeln!(out);
                 let _ = writeln!(out, "  [tool: {name}]");
@@ -473,4 +489,7 @@ fn print_help() {
     eprintln!("  /resume   — Resume a saved session by ID prefix");
     eprintln!("  /clear    — Clear conversation (starts new session)");
     eprintln!("  /quit     — Exit");
+    eprintln!();
+    eprintln!("Flags:");
+    eprintln!("  --thinking-budget <N>  — Enable extended thinking (token budget)");
 }
