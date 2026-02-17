@@ -22,7 +22,11 @@ pub enum AgentEvent {
     /// A tool is about to be executed.
     ToolStart { name: String, input: String },
     /// A tool has finished executing.
-    ToolEnd { name: String, output: String, is_error: bool },
+    ToolEnd {
+        name: String,
+        output: String,
+        is_error: bool,
+    },
     /// Usage information from the API.
     Usage(Usage),
     /// The agent has finished (no more tool calls).
@@ -115,10 +119,7 @@ impl Agent {
                         current_text.clear();
                     }
                     Ok(StreamEvent::ContentBlockStart {
-                        content_block:
-                            ContentBlock::ToolUse {
-                                id, name, ..
-                            },
+                        content_block: ContentBlock::ToolUse { id, name, .. },
                         ..
                     }) => {
                         current_tool_id = id;

@@ -1,7 +1,7 @@
 //! Anthropic Messages API client.
 
 use chet_types::{ApiError, CreateMessageRequest};
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 
 use crate::stream::MessageStream;
 
@@ -41,20 +41,18 @@ impl ApiClient {
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         headers.insert(
             "x-api-key",
-            HeaderValue::from_str(&self.api_key)
-                .map_err(|_| ApiError::Auth {
-                    message: "Invalid API key format".into(),
-                })?,
+            HeaderValue::from_str(&self.api_key).map_err(|_| ApiError::Auth {
+                message: "Invalid API key format".into(),
+            })?,
         );
         headers.insert(
             "anthropic-version",
             HeaderValue::from_static(ANTHROPIC_VERSION),
         );
 
-        let body = serde_json::to_string(request)
-            .map_err(|e| ApiError::BadRequest {
-                message: format!("Failed to serialize request: {e}"),
-            })?;
+        let body = serde_json::to_string(request).map_err(|e| ApiError::BadRequest {
+            message: format!("Failed to serialize request: {e}"),
+        })?;
 
         tracing::debug!("POST {url}");
 

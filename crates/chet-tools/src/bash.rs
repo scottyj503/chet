@@ -72,97 +72,93 @@ impl Tool for BashTool {
         &self,
         input: serde_json::Value,
         ctx: ToolContext,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>,
+    > {
         Box::pin(async move {
-        let input: BashInput = serde_json::from_value(input).map_err(|e| {
-            ToolError::InvalidInput {
-                tool: "Bash".into(),
-                message: e.to_string(),
-            }
-        })?;
+            let input: BashInput =
+                serde_json::from_value(input).map_err(|e| ToolError::InvalidInput {
+                    tool: "Bash".into(),
+                    message: e.to_string(),
+                })?;
 
-        let timeout_ms = input
-            .timeout
-            .unwrap_or(DEFAULT_TIMEOUT_MS)
-            .min(600_000);
+            let timeout_ms = input.timeout.unwrap_or(DEFAULT_TIMEOUT_MS).min(600_000);
 
-        // Get the persistent cwd or fall back to context cwd
-        let cwd = {
-            let lock = self.cwd.lock().unwrap();
-            lock.clone().unwrap_or_else(|| ctx.cwd.clone())
-        };
-
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis(timeout_ms),
-            Command::new("bash")
-                .arg("-c")
-                .arg(&input.command)
-                .current_dir(&cwd)
-                .output(),
-        )
-        .await;
-
-        let output = match result {
-            Ok(Ok(output)) => output,
-            Ok(Err(e)) => {
-                return Err(ToolError::ExecutionFailed(format!(
-                    "Failed to spawn command: {e}"
-                )));
-            }
-            Err(_) => {
-                return Err(ToolError::Timeout {
-                    timeout_ms,
-                });
-            }
-        };
-
-        // Try to detect `cd` commands and update persistent cwd
-        // This is a heuristic — we check if the command starts with `cd`
-        // and then resolve the new directory
-        if let Some(dir) = extract_cd_target(&input.command) {
-            let new_cwd = if dir.starts_with('/') {
-                PathBuf::from(dir)
-            } else {
-                cwd.join(dir)
+            // Get the persistent cwd or fall back to context cwd
+            let cwd = {
+                let lock = self.cwd.lock().unwrap();
+                lock.clone().unwrap_or_else(|| ctx.cwd.clone())
             };
-            if new_cwd.is_dir() {
-                *self.cwd.lock().unwrap() = Some(new_cwd);
+
+            let result = tokio::time::timeout(
+                std::time::Duration::from_millis(timeout_ms),
+                Command::new("bash")
+                    .arg("-c")
+                    .arg(&input.command)
+                    .current_dir(&cwd)
+                    .output(),
+            )
+            .await;
+
+            let output = match result {
+                Ok(Ok(output)) => output,
+                Ok(Err(e)) => {
+                    return Err(ToolError::ExecutionFailed(format!(
+                        "Failed to spawn command: {e}"
+                    )));
+                }
+                Err(_) => {
+                    return Err(ToolError::Timeout { timeout_ms });
+                }
+            };
+
+            // Try to detect `cd` commands and update persistent cwd
+            // This is a heuristic — we check if the command starts with `cd`
+            // and then resolve the new directory
+            if let Some(dir) = extract_cd_target(&input.command) {
+                let new_cwd = if dir.starts_with('/') {
+                    PathBuf::from(dir)
+                } else {
+                    cwd.join(dir)
+                };
+                if new_cwd.is_dir() {
+                    *self.cwd.lock().unwrap() = Some(new_cwd);
+                }
             }
-        }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let exit_code = output.status.code().unwrap_or(-1);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let exit_code = output.status.code().unwrap_or(-1);
 
-        let mut result_text = String::new();
-        if !stdout.is_empty() {
-            result_text.push_str(&stdout);
-        }
-        if !stderr.is_empty() {
-            if !result_text.is_empty() {
-                result_text.push('\n');
+            let mut result_text = String::new();
+            if !stdout.is_empty() {
+                result_text.push_str(&stdout);
             }
-            result_text.push_str(&stderr);
-        }
+            if !stderr.is_empty() {
+                if !result_text.is_empty() {
+                    result_text.push('\n');
+                }
+                result_text.push_str(&stderr);
+            }
 
-        // Truncate if needed
-        if result_text.len() > MAX_OUTPUT_BYTES {
-            result_text.truncate(MAX_OUTPUT_BYTES);
-            result_text.push_str("\n\n(output truncated)");
-        }
+            // Truncate if needed
+            if result_text.len() > MAX_OUTPUT_BYTES {
+                result_text.truncate(MAX_OUTPUT_BYTES);
+                result_text.push_str("\n\n(output truncated)");
+            }
 
-        if exit_code != 0 && result_text.is_empty() {
-            result_text = format!("Command exited with code {exit_code}");
-        }
+            if exit_code != 0 && result_text.is_empty() {
+                result_text = format!("Command exited with code {exit_code}");
+            }
 
-        if result_text.is_empty() {
-            result_text = "(no output)".to_string();
-        }
+            if result_text.is_empty() {
+                result_text = "(no output)".to_string();
+            }
 
-        Ok(ToolOutput {
-            content: vec![chet_types::ToolOutputContent::Text { text: result_text }],
-            is_error: exit_code != 0,
-        })
+            Ok(ToolOutput {
+                content: vec![chet_types::ToolOutputContent::Text { text: result_text }],
+                is_error: exit_code != 0,
+            })
         })
     }
 }
@@ -196,14 +192,12 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_bash_echo() {
         let tool = BashTool::new();
         let output = tool
-            .execute(
-                serde_json::json!({"command": "echo hello"}),
-                test_ctx(),
-            )
+            .execute(serde_json::json!({"command": "echo hello"}), test_ctx())
             .await
             .unwrap();
 
@@ -215,20 +209,19 @@ mod tests {
         assert_eq!(text.trim(), "hello");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_bash_exit_code() {
         let tool = BashTool::new();
         let output = tool
-            .execute(
-                serde_json::json!({"command": "exit 1"}),
-                test_ctx(),
-            )
+            .execute(serde_json::json!({"command": "exit 1"}), test_ctx())
             .await
             .unwrap();
 
         assert!(output.is_error);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_bash_timeout() {
         let tool = BashTool::new();

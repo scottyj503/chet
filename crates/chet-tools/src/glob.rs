@@ -46,73 +46,74 @@ impl Tool for GlobTool {
         &self,
         input: serde_json::Value,
         ctx: ToolContext,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>,
+    > {
         Box::pin(async move {
-        let input: GlobInput = serde_json::from_value(input).map_err(|e| {
-            ToolError::InvalidInput {
-                tool: "Glob".into(),
-                message: e.to_string(),
-            }
-        })?;
+            let input: GlobInput =
+                serde_json::from_value(input).map_err(|e| ToolError::InvalidInput {
+                    tool: "Glob".into(),
+                    message: e.to_string(),
+                })?;
 
-        let search_dir = input
-            .path
-            .map(PathBuf::from)
-            .unwrap_or_else(|| ctx.cwd.clone());
+            let search_dir = input
+                .path
+                .map(PathBuf::from)
+                .unwrap_or_else(|| ctx.cwd.clone());
 
-        let glob = globset::GlobBuilder::new(&input.pattern)
-            .literal_separator(false)
-            .build()
-            .map_err(|e| ToolError::InvalidInput {
-                tool: "Glob".into(),
-                message: format!("Invalid glob pattern: {e}"),
-            })?
-            .compile_matcher();
+            let glob = globset::GlobBuilder::new(&input.pattern)
+                .literal_separator(false)
+                .build()
+                .map_err(|e| ToolError::InvalidInput {
+                    tool: "Glob".into(),
+                    message: format!("Invalid glob pattern: {e}"),
+                })?
+                .compile_matcher();
 
-        // Walk the directory tree and collect matching files
-        // Use tokio::task::spawn_blocking since walkdir is synchronous
-        let search_dir_clone = search_dir.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            let mut found = Vec::new();
-            for entry in walkdir::WalkDir::new(&search_dir_clone)
-                .follow_links(false)
-                .into_iter()
-                .filter_map(|e| e.ok())
-            {
-                let path = entry.path();
-                // Match against the relative path
-                if let Ok(rel) = path.strip_prefix(&search_dir_clone) {
-                    if glob.is_match(rel) && path.is_file() {
-                        let mtime = entry
-                            .metadata()
-                            .ok()
-                            .and_then(|m| m.modified().ok())
-                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                        found.push((path.to_path_buf(), mtime));
+            // Walk the directory tree and collect matching files
+            // Use tokio::task::spawn_blocking since walkdir is synchronous
+            let search_dir_clone = search_dir.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                let mut found = Vec::new();
+                for entry in walkdir::WalkDir::new(&search_dir_clone)
+                    .follow_links(false)
+                    .into_iter()
+                    .filter_map(|e| e.ok())
+                {
+                    let path = entry.path();
+                    // Match against the relative path
+                    if let Ok(rel) = path.strip_prefix(&search_dir_clone) {
+                        if glob.is_match(rel) && path.is_file() {
+                            let mtime = entry
+                                .metadata()
+                                .ok()
+                                .and_then(|m| m.modified().ok())
+                                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                            found.push((path.to_path_buf(), mtime));
+                        }
                     }
                 }
+                found
+            })
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+
+            let mut matches = result;
+
+            // Sort by modification time, newest first
+            matches.sort_by(|a, b| b.1.cmp(&a.1));
+
+            if matches.is_empty() {
+                return Ok(ToolOutput::text("No files found"));
             }
-            found
-        })
-        .await
-        .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
 
-        let mut matches = result;
+            let output: String = matches
+                .iter()
+                .map(|(path, _)| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
 
-        // Sort by modification time, newest first
-        matches.sort_by(|a, b| b.1.cmp(&a.1));
-
-        if matches.is_empty() {
-            return Ok(ToolOutput::text("No files found"));
-        }
-
-        let output: String = matches
-            .iter()
-            .map(|(path, _)| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        Ok(ToolOutput::text(output))
+            Ok(ToolOutput::text(output))
         })
     }
 }

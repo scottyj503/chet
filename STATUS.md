@@ -46,3 +46,4 @@
 | 2026-02-17 | 13-crate workspace | Clean separation of concerns |
 | 2026-02-17 | Tool trait: Pin<Box<dyn Future>> | dyn-compatible; ToolContext passed by value |
 | 2026-02-17 | SSE parser: custom incremental | No good Rust SSE crate for our needs |
+| 2026-02-17 | License: MIT | Simple, maximally permissive, Rust ecosystem standard |

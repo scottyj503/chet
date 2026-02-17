@@ -45,12 +45,9 @@ impl ToolRegistry {
         input: serde_json::Value,
         ctx: ToolContext,
     ) -> Result<ToolOutput, ToolError> {
-        let tool = self
-            .tools
-            .get(name)
-            .ok_or_else(|| ToolError::UnknownTool {
-                name: name.to_string(),
-            })?;
+        let tool = self.tools.get(name).ok_or_else(|| ToolError::UnknownTool {
+            name: name.to_string(),
+        })?;
         tool.execute(input, ctx).await
     }
 

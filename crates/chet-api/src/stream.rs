@@ -69,9 +69,7 @@ impl Stream for MessageStream {
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            Poll::Ready(Some(Err(e))) => {
-                Poll::Ready(Some(Err(ApiError::Network(e.to_string()))))
-            }
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(ApiError::Network(e.to_string())))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }

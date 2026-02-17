@@ -51,58 +51,59 @@ impl Tool for ReadTool {
         &self,
         input: serde_json::Value,
         _ctx: ToolContext,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>,
+    > {
         Box::pin(async move {
-        let input: ReadInput = serde_json::from_value(input).map_err(|e| {
-            ToolError::InvalidInput {
-                tool: "Read".into(),
-                message: e.to_string(),
+            let input: ReadInput =
+                serde_json::from_value(input).map_err(|e| ToolError::InvalidInput {
+                    tool: "Read".into(),
+                    message: e.to_string(),
+                })?;
+
+            let content = tokio::fs::read_to_string(&input.file_path)
+                .await
+                .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
+
+            if content.is_empty() {
+                return Ok(ToolOutput::text("(empty file)"));
             }
-        })?;
 
-        let content = tokio::fs::read_to_string(&input.file_path)
-            .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
+            let lines: Vec<&str> = content.lines().collect();
+            let total_lines = lines.len();
+            let offset = input.offset.unwrap_or(1).max(1) - 1; // Convert to 0-based
+            let limit = input.limit.unwrap_or(2000);
 
-        if content.is_empty() {
-            return Ok(ToolOutput::text("(empty file)"));
-        }
+            let end = (offset + limit).min(total_lines);
+            let selected = &lines[offset.min(total_lines)..end];
 
-        let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
-        let offset = input.offset.unwrap_or(1).max(1) - 1; // Convert to 0-based
-        let limit = input.limit.unwrap_or(2000);
+            let max_line_num_width = format!("{}", end).len();
+            let mut output = String::new();
+            for (i, line) in selected.iter().enumerate() {
+                let line_num = offset + i + 1;
+                // Truncate lines longer than 2000 chars
+                let display_line = if line.len() > 2000 {
+                    &line[..2000]
+                } else {
+                    line
+                };
+                output.push_str(&format!(
+                    "{:>width$}\t{}\n",
+                    line_num,
+                    display_line,
+                    width = max_line_num_width
+                ));
+            }
 
-        let end = (offset + limit).min(total_lines);
-        let selected = &lines[offset.min(total_lines)..end];
+            if end < total_lines {
+                output.push_str(&format!(
+                    "\n(showing lines {}-{} of {total_lines})",
+                    offset + 1,
+                    end
+                ));
+            }
 
-        let max_line_num_width = format!("{}", end).len();
-        let mut output = String::new();
-        for (i, line) in selected.iter().enumerate() {
-            let line_num = offset + i + 1;
-            // Truncate lines longer than 2000 chars
-            let display_line = if line.len() > 2000 {
-                &line[..2000]
-            } else {
-                line
-            };
-            output.push_str(&format!(
-                "{:>width$}\t{}\n",
-                line_num,
-                display_line,
-                width = max_line_num_width
-            ));
-        }
-
-        if end < total_lines {
-            output.push_str(&format!(
-                "\n(showing lines {}-{} of {total_lines})",
-                offset + 1,
-                end
-            ));
-        }
-
-        Ok(ToolOutput::text(output))
+            Ok(ToolOutput::text(output))
         })
     }
 }

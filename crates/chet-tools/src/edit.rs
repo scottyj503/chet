@@ -56,63 +56,61 @@ impl Tool for EditTool {
         &self,
         input: serde_json::Value,
         _ctx: ToolContext,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>,
+    > {
         Box::pin(async move {
-        let input: EditInput = serde_json::from_value(input).map_err(|e| {
-            ToolError::InvalidInput {
-                tool: "Edit".into(),
-                message: e.to_string(),
+            let input: EditInput =
+                serde_json::from_value(input).map_err(|e| ToolError::InvalidInput {
+                    tool: "Edit".into(),
+                    message: e.to_string(),
+                })?;
+
+            if input.old_string == input.new_string {
+                return Ok(ToolOutput::error(
+                    "old_string and new_string are identical — no change needed",
+                ));
             }
-        })?;
 
-        if input.old_string == input.new_string {
-            return Ok(ToolOutput::error(
-                "old_string and new_string are identical — no change needed",
-            ));
-        }
+            let content = tokio::fs::read_to_string(&input.file_path)
+                .await
+                .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
 
-        let content = tokio::fs::read_to_string(&input.file_path)
-            .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
+            let match_count = content.matches(&input.old_string).count();
 
-        let match_count = content.matches(&input.old_string).count();
+            if match_count == 0 {
+                return Ok(ToolOutput::error(format!(
+                    "old_string not found in {}",
+                    input.file_path
+                )));
+            }
 
-        if match_count == 0 {
-            return Ok(ToolOutput::error(format!(
-                "old_string not found in {}",
-                input.file_path
-            )));
-        }
-
-        if !input.replace_all && match_count > 1 {
-            return Ok(ToolOutput::error(format!(
-                "old_string found {match_count} times in {} — provide more context to make \
+            if !input.replace_all && match_count > 1 {
+                return Ok(ToolOutput::error(format!(
+                    "old_string found {match_count} times in {} — provide more context to make \
                  it unique, or set replace_all to true",
-                input.file_path
-            )));
-        }
+                    input.file_path
+                )));
+            }
 
-        let new_content = if input.replace_all {
-            content.replace(&input.old_string, &input.new_string)
-        } else {
-            // Replace only the first (and only) occurrence
-            content.replacen(&input.old_string, &input.new_string, 1)
-        };
+            let new_content = if input.replace_all {
+                content.replace(&input.old_string, &input.new_string)
+            } else {
+                // Replace only the first (and only) occurrence
+                content.replacen(&input.old_string, &input.new_string, 1)
+            };
 
-        tokio::fs::write(&input.file_path, &new_content)
-            .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
+            tokio::fs::write(&input.file_path, &new_content)
+                .await
+                .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
 
-        let msg = if input.replace_all {
-            format!(
-                "Replaced {match_count} occurrences in {}",
-                input.file_path
-            )
-        } else {
-            format!("Successfully edited {}", input.file_path)
-        };
+            let msg = if input.replace_all {
+                format!("Replaced {match_count} occurrences in {}", input.file_path)
+            } else {
+                format!("Successfully edited {}", input.file_path)
+            };
 
-        Ok(ToolOutput::text(msg))
+            Ok(ToolOutput::text(msg))
         })
     }
 }

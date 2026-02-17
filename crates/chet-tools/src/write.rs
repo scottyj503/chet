@@ -45,33 +45,34 @@ impl Tool for WriteTool {
         &self,
         input: serde_json::Value,
         _ctx: ToolContext,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>,
+    > {
         Box::pin(async move {
-        let input: WriteInput = serde_json::from_value(input).map_err(|e| {
-            ToolError::InvalidInput {
-                tool: "Write".into(),
-                message: e.to_string(),
+            let input: WriteInput =
+                serde_json::from_value(input).map_err(|e| ToolError::InvalidInput {
+                    tool: "Write".into(),
+                    message: e.to_string(),
+                })?;
+
+            let path = Path::new(&input.file_path);
+
+            // Create parent directories if needed
+            if let Some(parent) = path.parent() {
+                tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                    ToolError::ExecutionFailed(format!("Failed to create dirs: {e}"))
+                })?;
             }
-        })?;
 
-        let path = Path::new(&input.file_path);
-
-        // Create parent directories if needed
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent)
+            tokio::fs::write(path, &input.content)
                 .await
-                .map_err(|e| ToolError::ExecutionFailed(format!("Failed to create dirs: {e}")))?;
-        }
+                .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
 
-        tokio::fs::write(path, &input.content)
-            .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
-
-        Ok(ToolOutput::text(format!(
-            "Successfully wrote {} bytes to {}",
-            input.content.len(),
-            input.file_path
-        )))
+            Ok(ToolOutput::text(format!(
+                "Successfully wrote {} bytes to {}",
+                input.content.len(),
+                input.file_path
+            )))
         })
     }
 }

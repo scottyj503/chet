@@ -2,8 +2,8 @@
 
 use chet_types::{Tool, ToolContext, ToolDefinition, ToolError, ToolOutput};
 use grep_regex::RegexMatcher;
-use grep_searcher::sinks::UTF8;
 use grep_searcher::Searcher;
+use grep_searcher::sinks::UTF8;
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -88,45 +88,52 @@ impl Tool for GrepTool {
         &self,
         input: serde_json::Value,
         ctx: ToolContext,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>,
+    > {
         Box::pin(async move {
-        let input: GrepInput = serde_json::from_value(input).map_err(|e| {
-            ToolError::InvalidInput {
-                tool: "Grep".into(),
-                message: e.to_string(),
+            let input: GrepInput =
+                serde_json::from_value(input).map_err(|e| ToolError::InvalidInput {
+                    tool: "Grep".into(),
+                    message: e.to_string(),
+                })?;
+
+            let search_path = input
+                .path
+                .map(PathBuf::from)
+                .unwrap_or_else(|| ctx.cwd.clone());
+
+            let matcher = RegexMatcher::new_line_matcher(&input.pattern).map_err(|e| {
+                ToolError::InvalidInput {
+                    tool: "Grep".into(),
+                    message: format!("Invalid regex: {e}"),
+                }
+            })?;
+
+            let head_limit = input.head_limit.unwrap_or(0);
+
+            // Use spawn_blocking since grep-searcher is synchronous
+            let output_mode = input.output_mode.clone();
+            let glob_filter = input.glob.clone();
+
+            let result = tokio::task::spawn_blocking(move || {
+                search_files(
+                    &matcher,
+                    &search_path,
+                    &output_mode,
+                    glob_filter.as_deref(),
+                    head_limit,
+                )
+            })
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?
+            .map_err(ToolError::ExecutionFailed)?;
+
+            if result.is_empty() {
+                return Ok(ToolOutput::text("No matches found"));
             }
-        })?;
 
-        let search_path = input
-            .path
-            .map(PathBuf::from)
-            .unwrap_or_else(|| ctx.cwd.clone());
-
-        let matcher = RegexMatcher::new_line_matcher(&input.pattern).map_err(|e| {
-            ToolError::InvalidInput {
-                tool: "Grep".into(),
-                message: format!("Invalid regex: {e}"),
-            }
-        })?;
-
-        let head_limit = input.head_limit.unwrap_or(0);
-
-        // Use spawn_blocking since grep-searcher is synchronous
-        let output_mode = input.output_mode.clone();
-        let glob_filter = input.glob.clone();
-
-        let result = tokio::task::spawn_blocking(move || {
-            search_files(&matcher, &search_path, &output_mode, glob_filter.as_deref(), head_limit)
-        })
-        .await
-        .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?
-        .map_err(ToolError::ExecutionFailed)?;
-
-        if result.is_empty() {
-            return Ok(ToolOutput::text("No matches found"));
-        }
-
-        Ok(ToolOutput::text(result))
+            Ok(ToolOutput::text(result))
         })
     }
 }
@@ -269,7 +276,11 @@ mod tests {
     #[tokio::test]
     async fn test_grep_content_mode() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("test.txt"), "line one\nline two\nline three\n").unwrap();
+        std::fs::write(
+            dir.path().join("test.txt"),
+            "line one\nline two\nline three\n",
+        )
+        .unwrap();
 
         let output = GrepTool
             .execute(
