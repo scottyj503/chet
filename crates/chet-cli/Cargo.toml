@@ -18,6 +18,8 @@ chet-api = { workspace = true }
 chet-core = { workspace = true }
 chet-permissions = { workspace = true }
 chet-tools = { workspace = true }
+chet-session = { workspace = true }
+chrono = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }

@@ -7,8 +7,10 @@ use chet_api::ApiClient;
 use chet_config::{ChetConfig, CliOverrides};
 use chet_core::{Agent, AgentEvent};
 use chet_permissions::PermissionEngine;
+use chet_session::{ContextTracker, Session, SessionStore, compact};
 use chet_tools::ToolRegistry;
 use chet_types::{ContentBlock, Message, Role, Usage};
+use chrono::Utc;
 use clap::Parser;
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
@@ -19,6 +21,10 @@ struct Cli {
     /// Send a single prompt and print the response (non-interactive)
     #[arg(short, long)]
     print: Option<String>,
+
+    /// Resume a previous session by ID or prefix
+    #[arg(long)]
+    resume: Option<String>,
 
     /// Model to use
     #[arg(long)]
@@ -70,7 +76,7 @@ async fn main() -> Result<()> {
     let is_interactive = cli.print.is_none() && !cli.ludicrous;
 
     if let Some(prompt) = cli.print {
-        // Print mode: single prompt, no prompt handler (Prompt → Block)
+        // Print mode: single prompt, no session persistence
         let engine = if cli.ludicrous {
             PermissionEngine::ludicrous()
         } else {
@@ -99,7 +105,7 @@ async fn main() -> Result<()> {
         )
     };
 
-    repl(client, engine, &config, &cwd).await
+    repl(client, engine, &config, &cwd, cli.resume).await
 }
 
 fn create_agent(
@@ -126,16 +132,35 @@ async fn repl(
     permissions: PermissionEngine,
     config: &ChetConfig,
     cwd: &std::path::Path,
+    resume_id: Option<String>,
 ) -> Result<()> {
     let agent = create_agent(client, permissions, config, cwd);
-    let mut messages: Vec<Message> = Vec::new();
-    let mut total_usage = Usage::default();
+    let store = SessionStore::new(config.config_dir.clone())
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let context_tracker = ContextTracker::new(&config.model);
+    let system = system_prompt(cwd);
+
+    // Load or create session
+    let mut session = match &resume_id {
+        Some(prefix) => {
+            let s = store
+                .load_by_prefix(prefix)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            eprintln!("Resumed session {}", s.short_id());
+            s
+        }
+        None => Session::new(config.model.clone(), cwd.display().to_string()),
+    };
+
     let stdin = io::stdin();
 
     eprintln!(
-        "chet v{} (model: {})",
+        "chet v{} (model: {}, session: {})",
         env!("CARGO_PKG_VERSION"),
-        config.model
+        config.model,
+        session.short_id()
     );
     eprintln!("Type your message. Press Ctrl+D to exit.\n");
 
@@ -156,50 +181,211 @@ async fn repl(
         }
 
         // Handle slash commands
-        match input {
-            "/quit" | "/exit" => break,
-            "/clear" => {
-                messages.clear();
-                eprintln!("Conversation cleared.");
-                continue;
+        if let Some(handled) =
+            handle_slash_command(input, &mut session, &store, &context_tracker, &system).await
+        {
+            match handled {
+                SlashResult::Continue => continue,
+                SlashResult::Break => break,
+                SlashResult::Unknown => {
+                    eprintln!("Unknown command: {input}. Type /help for available commands.");
+                    continue;
+                }
             }
-            "/cost" => {
-                print_usage(&total_usage);
-                continue;
-            }
-            "/help" => {
-                print_help();
-                continue;
-            }
-            "/model" => {
-                eprintln!("Current model: {}", config.model);
-                continue;
-            }
-            _ if input.starts_with('/') => {
-                eprintln!("Unknown command: {input}. Type /help for available commands.");
-                continue;
-            }
-            _ => {}
         }
 
-        messages.push(user_message(input));
+        session.messages.push(user_message(input));
 
-        match run_agent(&agent, &mut messages).await {
+        match run_agent(&agent, &mut session.messages).await {
             Ok(usage) => {
-                total_usage.add(&usage);
+                session.total_usage.add(&usage);
+                session.updated_at = Utc::now();
+
+                // Auto-save
+                if let Err(e) = store.save(&session).await {
+                    eprintln!("Warning: failed to save session: {e}");
+                }
+
+                // Print brief context line
+                let info = context_tracker.estimate(&session.messages, Some(&system));
+                eprintln!("{}", context_tracker.format_brief(&info));
             }
             Err(e) => {
                 eprintln!("\nError: {e}");
                 // Remove the failed user message
-                messages.pop();
+                session.messages.pop();
             }
         }
 
         println!();
     }
 
-    print_usage(&total_usage);
+    // Final save
+    session.updated_at = Utc::now();
+    if let Err(e) = store.save(&session).await {
+        eprintln!("Warning: failed to save session: {e}");
+    }
+
+    print_usage(&session.total_usage);
     Ok(())
+}
+
+enum SlashResult {
+    Continue,
+    Break,
+    Unknown,
+}
+
+async fn handle_slash_command(
+    input: &str,
+    session: &mut Session,
+    store: &SessionStore,
+    context_tracker: &ContextTracker,
+    system_prompt: &str,
+) -> Option<SlashResult> {
+    if !input.starts_with('/') {
+        return None;
+    }
+
+    let (cmd, args) = match input.split_once(' ') {
+        Some((c, a)) => (c, Some(a.trim())),
+        None => (input, None),
+    };
+
+    match cmd {
+        "/quit" | "/exit" => Some(SlashResult::Break),
+        "/clear" => {
+            *session = Session::new(session.metadata.model.clone(), session.metadata.cwd.clone());
+            eprintln!("Conversation cleared. New session: {}", session.short_id());
+            Some(SlashResult::Continue)
+        }
+        "/cost" => {
+            print_usage(&session.total_usage);
+            Some(SlashResult::Continue)
+        }
+        "/help" => {
+            print_help();
+            Some(SlashResult::Continue)
+        }
+        "/model" => {
+            eprintln!("Current model: {}", session.metadata.model);
+            Some(SlashResult::Continue)
+        }
+        "/context" => {
+            let info = context_tracker.estimate(&session.messages, Some(system_prompt));
+            eprintln!("{}", context_tracker.format_detailed(&info));
+            Some(SlashResult::Continue)
+        }
+        "/compact" => {
+            handle_compact(session, store).await;
+            Some(SlashResult::Continue)
+        }
+        "/sessions" => {
+            handle_sessions_list(store).await;
+            Some(SlashResult::Continue)
+        }
+        "/resume" => {
+            if let Some(prefix) = args {
+                handle_resume(session, store, prefix).await;
+            } else {
+                eprintln!("Usage: /resume <session-id-prefix>");
+            }
+            Some(SlashResult::Continue)
+        }
+        _ if input.starts_with('/') => Some(SlashResult::Unknown),
+        _ => None,
+    }
+}
+
+async fn handle_compact(session: &mut Session, store: &SessionStore) {
+    match compact(&session.messages) {
+        Some(result) => {
+            session.compaction_count += 1;
+            let archive_path = match store
+                .write_compaction_archive(
+                    session.id,
+                    session.compaction_count,
+                    &result.archive_markdown,
+                )
+                .await
+            {
+                Ok(path) => path,
+                Err(e) => {
+                    eprintln!("Failed to write archive: {e}");
+                    return;
+                }
+            };
+
+            let removed = result.messages_removed;
+            session.messages = result.new_messages;
+            session.updated_at = Utc::now();
+
+            if let Err(e) = store.save(session).await {
+                eprintln!("Warning: failed to save session: {e}");
+            }
+
+            eprintln!(
+                "Compacted: removed {removed} messages, {} remaining.",
+                session.messages.len()
+            );
+            eprintln!("Archive saved to: {}", archive_path.display());
+        }
+        None => {
+            eprintln!("Nothing to compact: conversation is too short.");
+        }
+    }
+}
+
+async fn handle_sessions_list(store: &SessionStore) {
+    match store.list().await {
+        Ok(summaries) => {
+            if summaries.is_empty() {
+                eprintln!("No saved sessions.");
+                return;
+            }
+            eprintln!("Saved sessions:");
+            for s in &summaries {
+                let label = s.label.as_deref().unwrap_or("");
+                let label_str = if label.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{label}]")
+                };
+                eprintln!(
+                    "  {} {:>8}  {:>3} msgs  {}{}  {}",
+                    s.short_id(),
+                    s.age(),
+                    s.message_count,
+                    s.model,
+                    label_str,
+                    if s.preview.is_empty() {
+                        "(empty)"
+                    } else {
+                        &s.preview
+                    }
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to list sessions: {e}");
+        }
+    }
+}
+
+async fn handle_resume(session: &mut Session, store: &SessionStore, prefix: &str) {
+    match store.load_by_prefix(prefix).await {
+        Ok(loaded) => {
+            eprintln!(
+                "Resumed session {} ({} messages)",
+                loaded.short_id(),
+                loaded.messages.len()
+            );
+            *session = loaded;
+        }
+        Err(e) => {
+            eprintln!("Failed to resume: {e}");
+        }
+    }
 }
 
 /// Run the agent loop and stream output to stdout.
@@ -278,9 +464,13 @@ fn print_usage(usage: &Usage) {
 
 fn print_help() {
     eprintln!("Available commands:");
-    eprintln!("  /help    — Show this help");
-    eprintln!("  /model   — Show current model");
-    eprintln!("  /cost    — Show token usage");
-    eprintln!("  /clear   — Clear conversation history");
-    eprintln!("  /quit    — Exit");
+    eprintln!("  /help     — Show this help");
+    eprintln!("  /model    — Show current model");
+    eprintln!("  /cost     — Show token usage");
+    eprintln!("  /context  — Show detailed context window usage");
+    eprintln!("  /compact  — Compact conversation (archive + summarize)");
+    eprintln!("  /sessions — List saved sessions");
+    eprintln!("  /resume   — Resume a saved session by ID prefix");
+    eprintln!("  /clear    — Clear conversation (starts new session)");
+    eprintln!("  /quit     — Exit");
 }
