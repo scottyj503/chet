@@ -23,6 +23,8 @@ pub struct ChetConfig {
     pub max_tokens: u32,
     pub api_base_url: String,
     pub config_dir: PathBuf,
+    pub permission_rules: Vec<chet_permissions::PermissionRule>,
+    pub hooks: Vec<chet_permissions::HookConfig>,
 }
 
 /// Settings that can be read from a TOML config file.
@@ -30,6 +32,17 @@ pub struct ChetConfig {
 pub struct SettingsFile {
     #[serde(default)]
     pub api: ApiSettings,
+    #[serde(default)]
+    pub permissions: PermissionsSettings,
+    #[serde(default)]
+    pub hooks: Vec<chet_permissions::HookConfig>,
+}
+
+/// Permission rules section of the config file.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PermissionsSettings {
+    #[serde(default)]
+    pub rules: Vec<chet_permissions::PermissionRule>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -94,6 +107,8 @@ impl ChetConfig {
             model,
             max_tokens,
             api_base_url,
+            permission_rules: global_settings.permissions.rules,
+            hooks: global_settings.hooks,
             config_dir,
         })
     }
@@ -141,5 +156,60 @@ max_tokens = 8192
         let settings: SettingsFile = toml::from_str(toml_str).unwrap();
         assert_eq!(settings.api.model.as_deref(), Some("claude-opus-4-6"));
         assert_eq!(settings.api.max_tokens, Some(8192));
+    }
+
+    #[test]
+    fn test_settings_with_permissions() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+
+[[permissions.rules]]
+tool = "Read"
+level = "permit"
+
+[[permissions.rules]]
+tool = "Bash"
+args = "command:rm *"
+level = "block"
+
+[[hooks]]
+event = "before_tool"
+command = "/usr/local/bin/audit.sh"
+timeout_ms = 5000
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(settings.permissions.rules.len(), 2);
+        assert_eq!(settings.permissions.rules[0].tool, "Read");
+        assert_eq!(
+            settings.permissions.rules[0].level,
+            chet_permissions::PermissionLevel::Permit
+        );
+        assert_eq!(settings.permissions.rules[1].tool, "Bash");
+        assert_eq!(
+            settings.permissions.rules[1].args.as_deref(),
+            Some("command:rm *")
+        );
+        assert_eq!(
+            settings.permissions.rules[1].level,
+            chet_permissions::PermissionLevel::Block
+        );
+        assert_eq!(settings.hooks.len(), 1);
+        assert_eq!(
+            settings.hooks[0].event,
+            chet_permissions::HookEvent::BeforeTool
+        );
+        assert_eq!(settings.hooks[0].timeout_ms, 5000);
+    }
+
+    #[test]
+    fn test_settings_missing_permissions_defaults_to_empty() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert!(settings.permissions.rules.is_empty());
+        assert!(settings.hooks.is_empty());
     }
 }

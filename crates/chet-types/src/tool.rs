@@ -65,6 +65,14 @@ pub trait Tool: Send + Sync {
     /// The tool definition to send to the API (name, description, input schema).
     fn definition(&self) -> ToolDefinition;
 
+    /// Whether this tool only reads data without modifying the system.
+    ///
+    /// Read-only tools (e.g., Read, Glob, Grep) are auto-permitted by default
+    /// when no explicit permission rule matches. Mutating tools require a prompt.
+    fn is_read_only(&self) -> bool {
+        false
+    }
+
     /// Execute the tool with the given JSON input and context.
     ///
     /// The context is passed by value to avoid lifetime issues with dyn dispatch.

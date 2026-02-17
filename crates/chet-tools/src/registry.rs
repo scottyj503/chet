@@ -55,6 +55,11 @@ impl ToolRegistry {
     pub fn has_tool(&self, name: &str) -> bool {
         self.tools.contains_key(name)
     }
+
+    /// Query whether a tool is read-only by name.
+    pub fn is_read_only(&self, name: &str) -> Option<bool> {
+        self.tools.get(name).map(|t| t.is_read_only())
+    }
 }
 
 impl Default for ToolRegistry {

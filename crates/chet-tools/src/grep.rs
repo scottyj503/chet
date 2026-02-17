@@ -39,6 +39,10 @@ impl Tool for GrepTool {
         "Grep"
     }
 
+    fn is_read_only(&self) -> bool {
+        true
+    }
+
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "Grep".to_string(),

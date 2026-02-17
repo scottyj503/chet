@@ -1,13 +1,17 @@
 //! Chet CLI — an AI-powered coding assistant.
 
+mod prompt;
+
 use anyhow::{Context, Result};
 use chet_api::ApiClient;
 use chet_config::{ChetConfig, CliOverrides};
 use chet_core::{Agent, AgentEvent};
+use chet_permissions::PermissionEngine;
 use chet_tools::ToolRegistry;
 use chet_types::{ContentBlock, Message, Role, Usage};
 use clap::Parser;
 use std::io::{self, BufRead, Write};
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(name = "chet", version, about = "An AI-powered coding assistant")]
@@ -31,6 +35,10 @@ struct Cli {
     /// Enable verbose/debug logging
     #[arg(long)]
     verbose: bool,
+
+    /// Skip all permission checks — auto-permit every tool call
+    #[arg(long)]
+    ludicrous: bool,
 }
 
 #[tokio::main]
@@ -59,9 +67,16 @@ async fn main() -> Result<()> {
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
+    let is_interactive = cli.print.is_none() && !cli.ludicrous;
+
     if let Some(prompt) = cli.print {
-        // Print mode: single prompt, output response, exit
-        let agent = create_agent(client, &config, &cwd);
+        // Print mode: single prompt, no prompt handler (Prompt → Block)
+        let engine = if cli.ludicrous {
+            PermissionEngine::ludicrous()
+        } else {
+            PermissionEngine::new(config.permission_rules.clone(), config.hooks.clone(), None)
+        };
+        let agent = create_agent(client, engine, &config, &cwd);
         let mut messages = vec![user_message(&prompt)];
         let usage = run_agent(&agent, &mut messages).await?;
         print_usage(&usage);
@@ -69,14 +84,35 @@ async fn main() -> Result<()> {
     }
 
     // Interactive REPL mode
-    repl(client, &config, &cwd).await
+    let engine = if cli.ludicrous {
+        PermissionEngine::ludicrous()
+    } else {
+        let prompt_handler: Option<Arc<dyn chet_permissions::PromptHandler>> = if is_interactive {
+            Some(Arc::new(prompt::TerminalPromptHandler))
+        } else {
+            None
+        };
+        PermissionEngine::new(
+            config.permission_rules.clone(),
+            config.hooks.clone(),
+            prompt_handler,
+        )
+    };
+
+    repl(client, engine, &config, &cwd).await
 }
 
-fn create_agent(client: ApiClient, config: &ChetConfig, cwd: &std::path::Path) -> Agent {
+fn create_agent(
+    client: ApiClient,
+    permissions: PermissionEngine,
+    config: &ChetConfig,
+    cwd: &std::path::Path,
+) -> Agent {
     let registry = ToolRegistry::with_builtins();
     let mut agent = Agent::new(
         client,
         registry,
+        permissions,
         config.model.clone(),
         config.max_tokens,
         cwd.to_path_buf(),
@@ -85,8 +121,13 @@ fn create_agent(client: ApiClient, config: &ChetConfig, cwd: &std::path::Path) -
     agent
 }
 
-async fn repl(client: ApiClient, config: &ChetConfig, cwd: &std::path::Path) -> Result<()> {
-    let agent = create_agent(client, config, cwd);
+async fn repl(
+    client: ApiClient,
+    permissions: PermissionEngine,
+    config: &ChetConfig,
+    cwd: &std::path::Path,
+) -> Result<()> {
+    let agent = create_agent(client, permissions, config, cwd);
     let mut messages: Vec<Message> = Vec::new();
     let mut total_usage = Usage::default();
     let stdin = io::stdin();
@@ -187,6 +228,9 @@ async fn run_agent(agent: &Agent, messages: &mut Vec<Message>) -> Result<Usage> 
                 } else {
                     let _ = writeln!(out, "  [tool {name} done: {output}]");
                 }
+            }
+            AgentEvent::ToolBlocked { name, reason } => {
+                let _ = writeln!(out, "  [tool {name} blocked: {reason}]");
             }
             AgentEvent::Usage(_) => {}
             AgentEvent::Done => {

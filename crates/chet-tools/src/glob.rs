@@ -19,6 +19,10 @@ impl Tool for GlobTool {
         "Glob"
     }
 
+    fn is_read_only(&self) -> bool {
+        true
+    }
+
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "Glob".to_string(),

@@ -16,7 +16,9 @@ chet-types = { workspace = true }
 chet-config = { workspace = true }
 chet-api = { workspace = true }
 chet-core = { workspace = true }
+chet-permissions = { workspace = true }
 chet-tools = { workspace = true }
+serde_json = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

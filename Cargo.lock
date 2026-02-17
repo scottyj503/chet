@@ -154,10 +154,12 @@ dependencies = [
  "chet-api",
  "chet-config",
  "chet-core",
+ "chet-permissions",
  "chet-tools",
  "chet-types",
  "clap",
  "futures-util",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -167,6 +169,7 @@ dependencies = [
 name = "chet-config"
 version = "0.1.0"
 dependencies = [
+ "chet-permissions",
  "chet-types",
  "dirs-next",
  "serde",
@@ -222,6 +225,7 @@ name = "chet-permissions"
 version = "0.1.0"
 dependencies = [
  "chet-types",
+ "globset",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

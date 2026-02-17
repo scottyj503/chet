@@ -1,6 +1,10 @@
 //! The core agent loop that orchestrates conversation with tool use.
 
 use chet_api::ApiClient;
+use chet_permissions::{
+    HookEvent, HookInput, PermissionDecision, PermissionEngine, PermissionLevel, PermissionRule,
+    PromptResponse,
+};
 use chet_tools::ToolRegistry;
 use chet_types::{
     ContentBlock, ContentDelta, CreateMessageRequest, Message, Role, StopReason, StreamEvent,
@@ -31,6 +35,8 @@ pub enum AgentEvent {
     Usage(Usage),
     /// The agent has finished (no more tool calls).
     Done,
+    /// A tool call was blocked by the permission system.
+    ToolBlocked { name: String, reason: String },
     /// An error occurred.
     Error(String),
 }
@@ -39,6 +45,7 @@ pub enum AgentEvent {
 pub struct Agent {
     client: ApiClient,
     registry: ToolRegistry,
+    permissions: PermissionEngine,
     model: String,
     max_tokens: u32,
     system_prompt: Option<String>,
@@ -49,6 +56,7 @@ impl Agent {
     pub fn new(
         client: ApiClient,
         registry: ToolRegistry,
+        permissions: PermissionEngine,
         model: String,
         max_tokens: u32,
         cwd: PathBuf,
@@ -56,6 +64,7 @@ impl Agent {
         Self {
             client,
             registry,
+            permissions,
             model,
             max_tokens,
             system_prompt: None,
@@ -221,6 +230,92 @@ impl Agent {
 
             let mut tool_results = Vec::new();
             for (tool_id, tool_name, tool_input) in &tool_uses {
+                let is_read_only = self.registry.is_read_only(tool_name).unwrap_or(false);
+
+                // 1. Check permissions
+                let decision = self.permissions.check(tool_name, tool_input, is_read_only);
+
+                let permitted = match decision {
+                    PermissionDecision::Permit => true,
+                    PermissionDecision::Block { reason } => {
+                        on_event(AgentEvent::ToolBlocked {
+                            name: tool_name.clone(),
+                            reason: reason.clone(),
+                        });
+                        tool_results.push(ContentBlock::ToolResult {
+                            tool_use_id: tool_id.clone(),
+                            content: vec![ToolResultContent::Text {
+                                text: format!("Permission denied: {reason}"),
+                            }],
+                            is_error: Some(true),
+                        });
+                        false
+                    }
+                    PermissionDecision::Prompt { description, .. } => {
+                        let response = self
+                            .permissions
+                            .prompt(tool_name, tool_input, &description)
+                            .await;
+                        match response {
+                            PromptResponse::AllowOnce => true,
+                            PromptResponse::AlwaysAllow => {
+                                self.permissions.add_session_rule(PermissionRule {
+                                    tool: tool_name.clone(),
+                                    args: None,
+                                    level: PermissionLevel::Permit,
+                                });
+                                true
+                            }
+                            PromptResponse::Deny => {
+                                on_event(AgentEvent::ToolBlocked {
+                                    name: tool_name.clone(),
+                                    reason: "Denied by user".to_string(),
+                                });
+                                tool_results.push(ContentBlock::ToolResult {
+                                    tool_use_id: tool_id.clone(),
+                                    content: vec![ToolResultContent::Text {
+                                        text: "Permission denied by user".to_string(),
+                                    }],
+                                    is_error: Some(true),
+                                });
+                                false
+                            }
+                        }
+                    }
+                };
+
+                if !permitted {
+                    continue;
+                }
+
+                // 2. Run before_tool hooks
+                let hook_input = HookInput {
+                    event: HookEvent::BeforeTool,
+                    tool_name: Some(tool_name.clone()),
+                    tool_input: Some(tool_input.clone()),
+                    tool_output: None,
+                    is_error: None,
+                };
+                if let Err(reason) = self
+                    .permissions
+                    .run_hooks(&HookEvent::BeforeTool, &hook_input)
+                    .await
+                {
+                    on_event(AgentEvent::ToolBlocked {
+                        name: tool_name.clone(),
+                        reason: reason.clone(),
+                    });
+                    tool_results.push(ContentBlock::ToolResult {
+                        tool_use_id: tool_id.clone(),
+                        content: vec![ToolResultContent::Text {
+                            text: format!("Blocked by hook: {reason}"),
+                        }],
+                        is_error: Some(true),
+                    });
+                    continue;
+                }
+
+                // 3. Execute the tool
                 let result = self
                     .registry
                     .execute(tool_name, tool_input.clone(), ctx.clone())
@@ -246,6 +341,22 @@ impl Agent {
                     output: truncate_for_display(&output_text, 200),
                     is_error: output.is_error,
                 });
+
+                // 4. Run after_tool hooks (log-only, don't undo)
+                let after_hook_input = HookInput {
+                    event: HookEvent::AfterTool,
+                    tool_name: Some(tool_name.clone()),
+                    tool_input: Some(tool_input.clone()),
+                    tool_output: Some(truncate_for_display(&output_text, 1000)),
+                    is_error: Some(output.is_error),
+                };
+                if let Err(msg) = self
+                    .permissions
+                    .run_hooks(&HookEvent::AfterTool, &after_hook_input)
+                    .await
+                {
+                    tracing::warn!("after_tool hook error: {msg}");
+                }
 
                 let content = output
                     .content
