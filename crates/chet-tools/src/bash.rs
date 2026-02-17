@@ -182,6 +182,7 @@ fn extract_cd_target(command: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::collections::HashMap;
 
     #[cfg(unix)]
