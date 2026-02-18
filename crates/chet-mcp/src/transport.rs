@@ -188,6 +188,7 @@ impl StdioTransport {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn spawn_echo_process() {
         // Use `cat` as a simple echo process
@@ -214,6 +215,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn request_response_roundtrip_with_mock() {
         // Create a mock MCP server using a bash script that echoes JSON-RPC responses
@@ -241,6 +243,7 @@ mod tests {
         transport.shutdown().await;
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn notification_does_not_block() {
         let transport = StdioTransport::spawn("cat", &[], &HashMap::new(), 5000).unwrap();
@@ -253,6 +256,7 @@ mod tests {
         transport.shutdown().await;
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn timeout_fires_on_unresponsive_server() {
         // `sleep` never writes to stdout, so requests will time out
