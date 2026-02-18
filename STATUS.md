@@ -36,6 +36,22 @@
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working
 
+## Live API Testing (2026-02-18)
+
+All Phases 0-4.5 validated against live Anthropic API:
+- **Streaming chat**: SSE streaming, response parsing, token tracking — PASS
+- **Tool use (Read)**: Agent loop calls Read tool, returns result, gets final answer — PASS
+- **Tool use (Bash)**: Runs shell commands, captures output — PASS
+- **Tool use (Grep)**: Regex search, files_with_matches mode — PASS
+- **Prompt caching**: cache_write on first call, cache_read on subsequent — PASS
+- **Extended thinking**: --thinking-budget flag, thinking blocks streamed to stderr — PASS
+- **REPL mode**: /help, /cost, /context, /quit all working — PASS
+- **Session save**: Auto-save after each turn, /sessions lists saved — PASS
+- **Session resume**: --resume with prefix matching, conversation history preserved — PASS
+
+Bug found and fixed:
+- **MessageStream event drop**: When SSE parser returned multiple events from one byte chunk, only the first was yielded — rest silently dropped. Fixed by buffering parsed events in `pending_events` Vec.
+
 ## Open Blockers
 
 - (none)
@@ -59,3 +75,5 @@
 | 2026-02-17 | Token estimation: chars/4 | Simple heuristic, no tokenizer dependency |
 | 2026-02-17 | Compaction: user-triggered only | /compact command, no automatic truncation |
 | 2026-02-17 | Session IDs: UUID with prefix matching | --resume a1b2c3 matches, errors if ambiguous |
+| 2026-02-18 | Live API testing before Phase 5 | Validate plumbing before building rich UI |
+| 2026-02-18 | Phase 5 split into 5a/5b/5c | Line editor, markdown renderer, tool output polish |

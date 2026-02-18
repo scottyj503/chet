@@ -152,6 +152,7 @@ dependencies = [
  "bytes",
  "chet-types",
  "futures-core",
+ "futures-util",
  "pin-project-lite",
  "reqwest",
  "serde",

@@ -65,6 +65,15 @@ Options:
 | `/clear`             | Clear conversation (starts new session)  |
 | `/quit`              | Exit                                     |
 
+## Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `ANTHROPIC_API_KEY` | Your Anthropic API key | Yes (unless in config or `--api-key`) |
+| `CHET_MODEL` | Override default model | No |
+| `ANTHROPIC_API_BASE_URL` | Custom API endpoint | No |
+| `CHET_CONFIG_DIR` | Override config directory (default: `~/.chet/`) | No |
+
 ## Configuration
 
 Create `~/.chet/config.toml`:
@@ -111,14 +120,20 @@ Chet is a Cargo workspace with focused crates:
 | `chet-lsp` | LSP client *(planned)* |
 | `chet-sandbox` | Landlock/seccomp sandboxing *(planned)* |
 
-## Building
+## Building & Testing
 
 ```bash
 # Check
 cargo check --workspace
 
-# Test (82 tests)
+# Unit tests (87 tests — runs fast, no API key needed)
 cargo test --workspace
+
+# Integration tests (6 tests — mock SSE pipeline, on-demand)
+cargo test --workspace -- --ignored
+
+# All tests
+cargo test --workspace -- --include-ignored
 
 # Clippy
 cargo clippy --workspace
