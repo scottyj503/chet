@@ -186,6 +186,7 @@ dependencies = [
  "chet-api",
  "chet-config",
  "chet-core",
+ "chet-mcp",
  "chet-permissions",
  "chet-session",
  "chet-terminal",
@@ -207,6 +208,7 @@ name = "chet-config"
 version = "0.1.0"
 dependencies = [
  "chet-api",
+ "chet-mcp",
  "chet-permissions",
  "chet-types",
  "dirs-next",
@@ -256,6 +258,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "toml",
  "tracing",
 ]
 

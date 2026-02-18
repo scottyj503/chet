@@ -8,6 +8,7 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 
 - **Streaming chat** — real-time SSE streaming from the Anthropic API
 - **Built-in tools** — Read, Write, Edit, Bash, Glob, Grep, Subagent
+- **MCP servers** — connect external tool providers via JSON-RPC 2.0 over stdio (filesystem, GitHub, databases, etc.)
 - **Agent loop** — automatic tool use cycles (Claude calls tools, gets results, continues)
 - **Permission system** — permit/block/prompt rules, before/after hooks, `--ludicrous` mode
 - **Session management** — auto-save, `--resume`, `/compact`, context tracking
@@ -64,6 +65,7 @@ Options:
 |----------------------|------------------------------------------|
 | `/help`              | Show available commands                  |
 | `/plan`              | Toggle plan mode (read-only exploration) |
+| `/mcp`               | Show connected MCP servers and tools     |
 | `/model`             | Show current model                       |
 | `/cost`              | Show token usage                         |
 | `/context`           | Show detailed context window usage       |
@@ -111,6 +113,17 @@ level = "block"
 event = "before_tool"
 command = "/usr/local/bin/audit.sh"
 timeout_ms = 5000
+
+# MCP servers (external tool providers via JSON-RPC 2.0 over stdio)
+[mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+
+[mcp.servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_TOKEN = "ghp_xxxx" }
+# timeout_ms = 30000  # default: 30 seconds
 ```
 
 ## Architecture
@@ -128,7 +141,7 @@ Chet is a Cargo workspace with focused crates:
 | `chet-permissions` | Permission engine, rule matcher, hook runner |
 | `chet-session` | Session persistence, context tracking, compaction |
 | `chet-terminal` | Custom line editor, streaming markdown, syntax highlighting |
-| `chet-mcp` | MCP client *(planned)* |
+| `chet-mcp` | MCP client (JSON-RPC 2.0 over stdio, tool discovery, multi-server) |
 | `chet-plugins` | Plugin system *(planned)* |
 | `chet-lsp` | LSP client *(planned)* |
 | `chet-sandbox` | Landlock/seccomp sandboxing *(planned)* |
@@ -139,7 +152,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (258 tests — runs fast, no API key needed)
+# Unit tests (294 tests — runs fast, no API key needed)
 cargo test --workspace
 
 # Integration tests (6 tests — mock SSE pipeline, on-demand)

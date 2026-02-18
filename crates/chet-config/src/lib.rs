@@ -28,6 +28,7 @@ pub struct ChetConfig {
     pub config_dir: PathBuf,
     pub permission_rules: Vec<chet_permissions::PermissionRule>,
     pub hooks: Vec<chet_permissions::HookConfig>,
+    pub mcp: chet_mcp::McpConfig,
 }
 
 /// Settings that can be read from a TOML config file.
@@ -39,6 +40,8 @@ pub struct SettingsFile {
     pub permissions: PermissionsSettings,
     #[serde(default)]
     pub hooks: Vec<chet_permissions::HookConfig>,
+    #[serde(default)]
+    pub mcp: chet_mcp::McpConfig,
 }
 
 /// Permission rules section of the config file.
@@ -152,6 +155,7 @@ impl ChetConfig {
             retry,
             permission_rules: global_settings.permissions.rules,
             hooks: global_settings.hooks,
+            mcp: global_settings.mcp,
             config_dir,
         })
     }
@@ -283,5 +287,42 @@ model = "claude-opus-4-6"
         let settings: SettingsFile = toml::from_str(toml_str).unwrap();
         assert!(settings.permissions.rules.is_empty());
         assert!(settings.hooks.is_empty());
+    }
+
+    #[test]
+    fn test_settings_with_mcp_section() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+
+[mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+
+[mcp.servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_TOKEN = "ghp_xxxx" }
+timeout_ms = 60000
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(settings.mcp.servers.len(), 2);
+        let fs = &settings.mcp.servers["filesystem"];
+        assert_eq!(fs.command, "npx");
+        assert_eq!(fs.args.len(), 3);
+        assert_eq!(fs.timeout_ms, 30000); // default
+        let gh = &settings.mcp.servers["github"];
+        assert_eq!(gh.env["GITHUB_TOKEN"], "ghp_xxxx");
+        assert_eq!(gh.timeout_ms, 60000);
+    }
+
+    #[test]
+    fn test_settings_missing_mcp_defaults_to_empty() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert!(settings.mcp.servers.is_empty());
     }
 }

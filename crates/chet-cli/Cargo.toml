@@ -16,6 +16,7 @@ chet-types = { workspace = true }
 chet-config = { workspace = true }
 chet-api = { workspace = true }
 chet-core = { workspace = true }
+chet-mcp = { workspace = true }
 chet-permissions = { workspace = true }
 chet-tools = { workspace = true }
 chet-session = { workspace = true }

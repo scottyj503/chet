@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 chet-api = { workspace = true }
+chet-mcp = { workspace = true }
 chet-types = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

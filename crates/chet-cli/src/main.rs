@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use chet_api::AnthropicProvider;
 use chet_config::{ChetConfig, CliOverrides};
 use chet_core::{Agent, AgentEvent, SubagentTool};
+use chet_mcp::{McpManager, McpTool};
 use chet_permissions::PermissionEngine;
 use chet_session::{ContextTracker, Session, SessionStore, compact};
 use chet_terminal::{LineEditor, ReadLineResult, SlashCommandCompleter, StreamingMarkdownRenderer};
@@ -92,6 +93,9 @@ async fn main() -> Result<()> {
 
     let is_interactive = cli.print.is_none() && !cli.ludicrous;
 
+    // Start MCP servers if configured
+    let mcp_manager = start_mcp_servers(&config).await;
+
     if let Some(prompt) = cli.print {
         // Print mode: single prompt, no session persistence
         let engine = Arc::new(if cli.ludicrous {
@@ -99,10 +103,13 @@ async fn main() -> Result<()> {
         } else {
             PermissionEngine::new(config.permission_rules.clone(), config.hooks.clone(), None)
         });
-        let agent = create_agent(Arc::clone(&provider), engine, &config, &cwd);
+        let agent = create_agent(Arc::clone(&provider), engine, &config, &cwd, &mcp_manager);
         let mut messages = vec![user_message(&prompt)];
         let usage = run_agent(&agent, &mut messages).await?;
         print_usage(&usage);
+        if let Some(manager) = mcp_manager {
+            manager.shutdown().await;
+        }
         return Ok(());
     }
 
@@ -122,7 +129,7 @@ async fn main() -> Result<()> {
         )
     });
 
-    repl(provider, engine, &config, &cwd, cli.resume).await
+    repl(provider, engine, &config, &cwd, cli.resume, mcp_manager).await
 }
 
 fn create_agent(
@@ -130,6 +137,7 @@ fn create_agent(
     permissions: Arc<PermissionEngine>,
     config: &ChetConfig,
     cwd: &std::path::Path,
+    mcp_manager: &Option<McpManager>,
 ) -> Agent {
     let mut registry = ToolRegistry::with_builtins();
     registry.register(Arc::new(SubagentTool::new(
@@ -139,6 +147,15 @@ fn create_agent(
         config.max_tokens,
         cwd.to_path_buf(),
     )));
+
+    // Register MCP tools
+    if let Some(manager) = mcp_manager {
+        for (client, tool_info) in manager.tools() {
+            let server_name = client.server_name().to_string();
+            registry.register(Arc::new(McpTool::new(&server_name, tool_info, client)));
+        }
+    }
+
     let mut agent = Agent::new(
         provider,
         registry,
@@ -160,8 +177,9 @@ async fn repl(
     config: &ChetConfig,
     cwd: &std::path::Path,
     resume_id: Option<String>,
+    mcp_manager: Option<McpManager>,
 ) -> Result<()> {
-    let mut agent = create_agent(provider, permissions, config, cwd);
+    let mut agent = create_agent(provider, permissions, config, cwd, &mcp_manager);
     let store = SessionStore::new(config.config_dir.clone())
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -188,6 +206,7 @@ async fn repl(
         "/clear",
         "/cost",
         "/help",
+        "/mcp",
         "/model",
         "/context",
         "/compact",
@@ -200,11 +219,19 @@ async fn repl(
         Some(budget) => format!(", thinking: {budget} tokens"),
         None => String::new(),
     };
+    let mcp_info = match &mcp_manager {
+        Some(m) if m.client_count() > 0 => {
+            let tool_count: usize = m.server_summary().iter().map(|(_, c)| c).sum();
+            format!(", mcp: {} servers/{} tools", m.client_count(), tool_count)
+        }
+        _ => String::new(),
+    };
     eprintln!(
-        "chet v{} (model: {}{}, session: {})",
+        "chet v{} (model: {}{}{}, session: {})",
         env!("CARGO_PKG_VERSION"),
         config.model,
         thinking_info,
+        mcp_info,
         session.short_id()
     );
     eprintln!("Type your message. Press Ctrl+D to exit.\n");
@@ -246,8 +273,15 @@ async fn repl(
         }
 
         // Handle slash commands
-        if let Some(handled) =
-            handle_slash_command(input, &mut session, &store, &context_tracker, &system).await
+        if let Some(handled) = handle_slash_command(
+            input,
+            &mut session,
+            &store,
+            &context_tracker,
+            &system,
+            &mcp_manager,
+        )
+        .await
         {
             match handled {
                 SlashResult::Continue => continue,
@@ -329,6 +363,11 @@ async fn repl(
         eprintln!("Warning: failed to save session: {e}");
     }
 
+    // Shut down MCP servers
+    if let Some(manager) = mcp_manager {
+        manager.shutdown().await;
+    }
+
     print_usage(&session.total_usage);
     Ok(())
 }
@@ -345,6 +384,7 @@ async fn handle_slash_command(
     store: &SessionStore,
     context_tracker: &ContextTracker,
     system_prompt: &str,
+    mcp_manager: &Option<McpManager>,
 ) -> Option<SlashResult> {
     if !input.starts_with('/') {
         return None;
@@ -368,6 +408,10 @@ async fn handle_slash_command(
         }
         "/help" => {
             print_help();
+            Some(SlashResult::Continue)
+        }
+        "/mcp" => {
+            handle_mcp_status(mcp_manager);
             Some(SlashResult::Continue)
         }
         "/model" => {
@@ -597,6 +641,33 @@ async fn run_agent(agent: &Agent, messages: &mut Vec<Message>) -> Result<Usage> 
     }
 }
 
+/// Start MCP servers from config. Returns None if no servers configured.
+async fn start_mcp_servers(config: &ChetConfig) -> Option<McpManager> {
+    if config.mcp.servers.is_empty() {
+        return None;
+    }
+    let manager = McpManager::start(&config.mcp).await;
+    if manager.client_count() > 0 {
+        Some(manager)
+    } else {
+        None
+    }
+}
+
+fn handle_mcp_status(mcp_manager: &Option<McpManager>) {
+    match mcp_manager {
+        Some(manager) if manager.client_count() > 0 => {
+            eprintln!("MCP servers ({} connected):", manager.client_count());
+            for (name, tool_count) in manager.server_summary() {
+                eprintln!("  {name}: {tool_count} tools");
+            }
+        }
+        _ => {
+            eprintln!("No MCP servers connected.");
+        }
+    }
+}
+
 fn user_message(text: &str) -> Message {
     Message {
         role: Role::User,
@@ -631,6 +702,7 @@ fn print_help() {
     eprintln!("Available commands:");
     eprintln!("  /help     — Show this help");
     eprintln!("  /plan     — Toggle plan mode (read-only exploration)");
+    eprintln!("  /mcp      — Show connected MCP servers and tools");
     eprintln!("  /model    — Show current model");
     eprintln!("  /cost     — Show token usage");
     eprintln!("  /context  — Show detailed context window usage");
