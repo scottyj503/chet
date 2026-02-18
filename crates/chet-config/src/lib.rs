@@ -3,6 +3,7 @@
 //! Reads configuration from multiple sources with precedence:
 //! env vars > project > global > defaults
 
+use chet_api::RetryConfig;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -23,6 +24,7 @@ pub struct ChetConfig {
     pub max_tokens: u32,
     pub api_base_url: String,
     pub thinking_budget: Option<u32>,
+    pub retry: RetryConfig,
     pub config_dir: PathBuf,
     pub permission_rules: Vec<chet_permissions::PermissionRule>,
     pub hooks: Vec<chet_permissions::HookConfig>,
@@ -53,6 +55,16 @@ pub struct ApiSettings {
     pub max_tokens: Option<u32>,
     pub base_url: Option<String>,
     pub thinking_budget: Option<u32>,
+    #[serde(default)]
+    pub retry: RetrySettings,
+}
+
+/// Optional retry settings from the `[api.retry]` config section.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RetrySettings {
+    pub max_retries: Option<u32>,
+    pub initial_delay_ms: Option<u64>,
+    pub max_delay_ms: Option<u64>,
 }
 
 /// CLI overrides that take highest precedence.
@@ -110,12 +122,34 @@ impl ChetConfig {
             .thinking_budget
             .or(global_settings.api.thinking_budget);
 
+        // Resolve retry config: config > defaults
+        let retry_defaults = RetryConfig::default();
+        let retry = RetryConfig {
+            max_retries: global_settings
+                .api
+                .retry
+                .max_retries
+                .unwrap_or(retry_defaults.max_retries),
+            initial_delay_ms: global_settings
+                .api
+                .retry
+                .initial_delay_ms
+                .unwrap_or(retry_defaults.initial_delay_ms),
+            max_delay_ms: global_settings
+                .api
+                .retry
+                .max_delay_ms
+                .unwrap_or(retry_defaults.max_delay_ms),
+            backoff_factor: retry_defaults.backoff_factor,
+        };
+
         Ok(ChetConfig {
             api_key,
             model,
             max_tokens,
             api_base_url,
             thinking_budget,
+            retry,
             permission_rules: global_settings.permissions.rules,
             hooks: global_settings.hooks,
             config_dir,
@@ -209,6 +243,35 @@ timeout_ms = 5000
             chet_permissions::HookEvent::BeforeTool
         );
         assert_eq!(settings.hooks[0].timeout_ms, 5000);
+    }
+
+    #[test]
+    fn test_settings_with_retry() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+
+[api.retry]
+max_retries = 5
+initial_delay_ms = 500
+max_delay_ms = 30000
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(settings.api.retry.max_retries, Some(5));
+        assert_eq!(settings.api.retry.initial_delay_ms, Some(500));
+        assert_eq!(settings.api.retry.max_delay_ms, Some(30000));
+    }
+
+    #[test]
+    fn test_settings_retry_defaults_when_missing() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert!(settings.api.retry.max_retries.is_none());
+        assert!(settings.api.retry.initial_delay_ms.is_none());
+        assert!(settings.api.retry.max_delay_ms.is_none());
     }
 
     #[test]

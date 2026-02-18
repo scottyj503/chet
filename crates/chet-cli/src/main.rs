@@ -83,7 +83,8 @@ async fn main() -> Result<()> {
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let client = ApiClient::new(&config.api_key, &config.api_base_url)
-        .context("Failed to create API client")?;
+        .context("Failed to create API client")?
+        .with_retry_config(config.retry.clone());
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 

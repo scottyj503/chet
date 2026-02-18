@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 6 COMPLETE — Ready for Phase 7 (Multi-Provider API)
+## Current Phase: Phase 7 COMPLETE — Ready for Phase 7.5 (Multi-Provider API)
 
 ## Phase Status
 
@@ -17,7 +17,8 @@
 | 5c | Tool Output Polish | **COMPLETE** | Spinner, styled tool icons, Ctrl+C cancellation, table rendering |
 | 5d | Plan Mode | **COMPLETE** | Read-only agent mode, /plan command, plan file output, user approval gate |
 | 6 | Subagent System | **COMPLETE** | SubagentTool, shared Arc<PermissionEngine>, builtins-only child, silent execution |
-| 7 | Multi-Provider API | Not started | Rate limit handling with backoff (429 responses) |
+| 7 | Retry & Backoff | **COMPLETE** | Exponential backoff with jitter for 429/529/5xx/network errors, Retry-After header, config |
+| 7.5 | Multi-Provider API | Not started | Provider trait, OpenAI/Google format mapping |
 | 8 | MCP Integration | Not started | Lazy-load MCP servers on demand |
 | 9 | Plugin System | Not started | Hot-reload: plugins available immediately without restart |
 | 10 | LSP Client | Not started | |
@@ -38,10 +39,11 @@
 - Phase 5c: Tool output polish — styled tool events (⚡✓✗⊘ icons with colors), braille spinner during API/tool execution, Ctrl+C cancellation via CancellationToken (returns to prompt), markdown table rendering with box-drawing characters and alignment
 - Phase 5d: Plan mode — `/plan` command toggles read-only mode (Read/Glob/Grep only), plan system prompt, plan file output to `~/.chet/plans/`, approval gate (approve/refine/discard), `pop_last_turn()` for discard, dynamic `plan> ` prompt
 - Phase 6: Subagent system — `SubagentTool` in chet-core, `Agent` takes `Arc<PermissionEngine>` (shared between parent/child), child gets builtins-only registry (no SubagentTool → no recursion), runs silently with no-op event callback, extracts last assistant text as tool result
+- Phase 7: Retry & backoff — `RetryConfig` + `is_retryable()` + `calculate_delay()` in `chet-api/src/retry.rs`, retry loop in `ApiClient::create_message_stream()`, `parse_retry_after()` for server-specified delays, ±25% jitter, `[api.retry]` config section, defaults: 2 retries / 1s initial / 2x factor / 60s max
 
 ## Test Summary
 
-- 231 unit tests passing (10 SSE/stream, 4 config, 14 core/agent+subagent, 20 tools, 24 permissions, 23 session, 7 message types, 124 terminal, 9 cli)
+- 253 unit tests passing (31 api (10 SSE/stream + 12 retry + 8 client + 1 classify), 6 config, 14 core/agent+subagent, 20 tools, 24 permissions, 23 session, 7 message types, 124 terminal, 9 cli)
 - 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working

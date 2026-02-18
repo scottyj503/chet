@@ -16,6 +16,7 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 - **Streaming markdown** — bold, italic, headings, code blocks with syntax highlighting, lists, links, blockquotes, tables with box-drawing
 - **Tool output polish** — spinner during API/tool execution, styled tool icons (⚡✓✗⊘), Ctrl+C returns to prompt
 - **Subagents** — delegate complex sub-tasks to child agents that run silently and return results
+- **Retry & backoff** — automatic retry with exponential backoff and jitter for 429/529/5xx/network errors, respects `Retry-After` header
 - **Plan mode** — `/plan` toggles read-only exploration mode (Read/Glob/Grep only), produces structured plans, approve/refine/discard workflow
 - **Line editor** — arrow keys, Home/End, word movement, history, tab completion for slash commands
 - **REPL + print mode** — interactive or single-shot (`chet -p "explain this code"`)
@@ -91,6 +92,11 @@ max_tokens = 16384
 # api_key = "sk-ant-..."  # prefer ANTHROPIC_API_KEY env var
 # thinking_budget = 10000  # enable extended thinking
 
+# [api.retry]
+# max_retries = 2          # default: 2 (0 disables retries)
+# initial_delay_ms = 1000  # default: 1000
+# max_delay_ms = 60000     # default: 60000
+
 [[permissions.rules]]
 tool = "Read"
 level = "permit"
@@ -132,7 +138,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (231 tests — runs fast, no API key needed)
+# Unit tests (253 tests — runs fast, no API key needed)
 cargo test --workspace
 
 # Integration tests (6 tests — mock SSE pipeline, on-demand)
