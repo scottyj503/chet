@@ -3,14 +3,14 @@
 mod prompt;
 
 use anyhow::{Context, Result};
-use chet_api::ApiClient;
+use chet_api::AnthropicProvider;
 use chet_config::{ChetConfig, CliOverrides};
 use chet_core::{Agent, AgentEvent, SubagentTool};
 use chet_permissions::PermissionEngine;
 use chet_session::{ContextTracker, Session, SessionStore, compact};
 use chet_terminal::{LineEditor, ReadLineResult, SlashCommandCompleter, StreamingMarkdownRenderer};
 use chet_tools::ToolRegistry;
-use chet_types::{ContentBlock, Message, Role, Usage};
+use chet_types::{ContentBlock, Message, Role, Usage, provider::Provider};
 use chrono::Utc;
 use clap::Parser;
 use std::io::{self, BufRead, Write};
@@ -82,9 +82,11 @@ async fn main() -> Result<()> {
     })
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    let client = ApiClient::new(&config.api_key, &config.api_base_url)
-        .context("Failed to create API client")?
-        .with_retry_config(config.retry.clone());
+    let provider: Arc<dyn Provider> = Arc::new(
+        AnthropicProvider::new(&config.api_key, &config.api_base_url)
+            .context("Failed to create API provider")?
+            .with_retry_config(config.retry.clone()),
+    );
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
@@ -97,7 +99,7 @@ async fn main() -> Result<()> {
         } else {
             PermissionEngine::new(config.permission_rules.clone(), config.hooks.clone(), None)
         });
-        let agent = create_agent(client, engine, &config, &cwd);
+        let agent = create_agent(Arc::clone(&provider), engine, &config, &cwd);
         let mut messages = vec![user_message(&prompt)];
         let usage = run_agent(&agent, &mut messages).await?;
         print_usage(&usage);
@@ -120,25 +122,25 @@ async fn main() -> Result<()> {
         )
     });
 
-    repl(client, engine, &config, &cwd, cli.resume).await
+    repl(provider, engine, &config, &cwd, cli.resume).await
 }
 
 fn create_agent(
-    client: ApiClient,
+    provider: Arc<dyn Provider>,
     permissions: Arc<PermissionEngine>,
     config: &ChetConfig,
     cwd: &std::path::Path,
 ) -> Agent {
     let mut registry = ToolRegistry::with_builtins();
     registry.register(Arc::new(SubagentTool::new(
-        client.clone(),
+        Arc::clone(&provider),
         Arc::clone(&permissions),
         config.model.clone(),
         config.max_tokens,
         cwd.to_path_buf(),
     )));
     let mut agent = Agent::new(
-        client,
+        provider,
         registry,
         permissions,
         config.model.clone(),
@@ -153,13 +155,13 @@ fn create_agent(
 }
 
 async fn repl(
-    client: ApiClient,
+    provider: Arc<dyn Provider>,
     permissions: Arc<PermissionEngine>,
     config: &ChetConfig,
     cwd: &std::path::Path,
     resume_id: Option<String>,
 ) -> Result<()> {
-    let mut agent = create_agent(client, permissions, config, cwd);
+    let mut agent = create_agent(provider, permissions, config, cwd);
     let store = SessionStore::new(config.config_dir.clone())
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;

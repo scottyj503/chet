@@ -9,7 +9,6 @@ rust-version.workspace = true
 
 [dependencies]
 chet-types = { workspace = true }
-chet-api = { workspace = true }
 chet-tools = { workspace = true }
 chet-permissions = { workspace = true }
 chet-session = { workspace = true }
@@ -20,3 +19,6 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 futures-util = "0.3"
+
+[dev-dependencies]
+chet-api = { workspace = true }

@@ -1,10 +1,12 @@
 //! SubagentTool — spawns a child agent to handle a delegated task.
 
 use crate::Agent;
-use chet_api::ApiClient;
 use chet_permissions::PermissionEngine;
 use chet_tools::ToolRegistry;
-use chet_types::{ContentBlock, Message, Role, ToolContext, ToolDefinition, ToolError, ToolOutput};
+use chet_types::{
+    ContentBlock, Message, Role, ToolContext, ToolDefinition, ToolError, ToolOutput,
+    provider::Provider,
+};
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -18,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 /// propagate both ways. The child runs silently and its final assistant text becomes
 /// the tool result.
 pub struct SubagentTool {
-    client: ApiClient,
+    provider: Arc<dyn Provider>,
     permissions: Arc<PermissionEngine>,
     model: String,
     max_tokens: u32,
@@ -27,14 +29,14 @@ pub struct SubagentTool {
 
 impl SubagentTool {
     pub fn new(
-        client: ApiClient,
+        provider: Arc<dyn Provider>,
         permissions: Arc<PermissionEngine>,
         model: String,
         max_tokens: u32,
         cwd: PathBuf,
     ) -> Self {
         Self {
-            client,
+            provider,
             permissions,
             model,
             max_tokens,
@@ -132,7 +134,7 @@ impl chet_types::Tool for SubagentTool {
             // Create child agent with builtins only (no SubagentTool → no recursion)
             let registry = ToolRegistry::with_builtins();
             let mut child = Agent::new(
-                self.client.clone(),
+                Arc::clone(&self.provider),
                 registry,
                 Arc::clone(&self.permissions),
                 self.model.clone(),
@@ -168,12 +170,14 @@ impl chet_types::Tool for SubagentTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chet_api::AnthropicProvider;
 
     fn make_tool() -> SubagentTool {
-        let client = ApiClient::new("test-key", "https://api.example.com").unwrap();
+        let provider: Arc<dyn Provider> =
+            Arc::new(AnthropicProvider::new("test-key", "https://api.example.com").unwrap());
         let permissions = Arc::new(PermissionEngine::ludicrous());
         SubagentTool::new(
-            client,
+            provider,
             permissions,
             "claude-sonnet-4-20250514".to_string(),
             4096,

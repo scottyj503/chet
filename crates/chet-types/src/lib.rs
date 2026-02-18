@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod message;
+pub mod provider;
 pub mod tool;
 
 pub use error::{ApiError, ChetError, ConfigError, ToolError};

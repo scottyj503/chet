@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 7 COMPLETE — Ready for Phase 7.5 (Multi-Provider API)
+## Current Phase: Phase 7.5 COMPLETE — Ready for Phase 8 (MCP Integration)
 
 ## Phase Status
 
@@ -18,7 +18,7 @@
 | 5d | Plan Mode | **COMPLETE** | Read-only agent mode, /plan command, plan file output, user approval gate |
 | 6 | Subagent System | **COMPLETE** | SubagentTool, shared Arc<PermissionEngine>, builtins-only child, silent execution |
 | 7 | Retry & Backoff | **COMPLETE** | Exponential backoff with jitter for 429/529/5xx/network errors, Retry-After header, config |
-| 7.5 | Multi-Provider API | Not started | Provider trait, OpenAI/Google format mapping |
+| 7.5 | Multi-Provider API | **COMPLETE** | Provider trait in chet-types, AnthropicProvider wraps ApiClient, Agent uses Arc<dyn Provider>, chet-core decoupled from chet-api |
 | 8 | MCP Integration | Not started | Lazy-load MCP servers on demand |
 | 9 | Plugin System | Not started | Hot-reload: plugins available immediately without restart |
 | 10 | LSP Client | Not started | |
@@ -40,10 +40,11 @@
 - Phase 5d: Plan mode — `/plan` command toggles read-only mode (Read/Glob/Grep only), plan system prompt, plan file output to `~/.chet/plans/`, approval gate (approve/refine/discard), `pop_last_turn()` for discard, dynamic `plan> ` prompt
 - Phase 6: Subagent system — `SubagentTool` in chet-core, `Agent` takes `Arc<PermissionEngine>` (shared between parent/child), child gets builtins-only registry (no SubagentTool → no recursion), runs silently with no-op event callback, extracts last assistant text as tool result
 - Phase 7: Retry & backoff — `RetryConfig` + `is_retryable()` + `calculate_delay()` in `chet-api/src/retry.rs`, retry loop in `ApiClient::create_message_stream()`, `parse_retry_after()` for server-specified delays, ±25% jitter, `[api.retry]` config section, defaults: 2 retries / 1s initial / 2x factor / 60s max
+- Phase 7.5: Multi-Provider API — `Provider` trait + `EventStream` type alias in `chet-types/src/provider.rs`, `AnthropicProvider` in `chet-api/src/provider.rs` wraps `ApiClient`, `Agent` + `SubagentTool` take `Arc<dyn Provider>`, `chet-core` no longer depends on `chet-api` (only dev-dependency for tests)
 
 ## Test Summary
 
-- 253 unit tests passing (31 api (10 SSE/stream + 12 retry + 8 client + 1 classify), 6 config, 14 core/agent+subagent, 20 tools, 24 permissions, 23 session, 7 message types, 124 terminal, 9 cli)
+- 258 unit tests passing (34 api (10 SSE/stream + 12 retry + 8 client + 1 classify + 3 provider), 6 config, 14 core/agent+subagent, 20 tools, 24 permissions, 23 session, 9 types (7 message + 2 provider), 124 terminal, 9 cli)
 - 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working

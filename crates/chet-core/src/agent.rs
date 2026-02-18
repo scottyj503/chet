@@ -1,6 +1,5 @@
 //! The core agent loop that orchestrates conversation with tool use.
 
-use chet_api::ApiClient;
 use chet_permissions::{
     HookEvent, HookInput, PermissionDecision, PermissionEngine, PermissionLevel, PermissionRule,
     PromptResponse,
@@ -9,6 +8,7 @@ use chet_tools::ToolRegistry;
 use chet_types::{
     CacheControl, ContentBlock, ContentDelta, CreateMessageRequest, Message, Role, StopReason,
     StreamEvent, SystemContent, ThinkingConfig, ToolContext, ToolOutput, ToolResultContent, Usage,
+    provider::Provider,
 };
 use futures_util::StreamExt;
 use std::path::PathBuf;
@@ -47,7 +47,7 @@ pub enum AgentEvent {
 
 /// The main agent that manages conversation with the LLM and tool execution.
 pub struct Agent {
-    client: ApiClient,
+    provider: Arc<dyn Provider>,
     registry: ToolRegistry,
     permissions: Arc<PermissionEngine>,
     model: String,
@@ -60,7 +60,7 @@ pub struct Agent {
 
 impl Agent {
     pub fn new(
-        client: ApiClient,
+        provider: Arc<dyn Provider>,
         registry: ToolRegistry,
         permissions: Arc<PermissionEngine>,
         model: String,
@@ -68,7 +68,7 @@ impl Agent {
         cwd: PathBuf,
     ) -> Self {
         Self {
-            client,
+            provider,
             registry,
             permissions,
             model,
@@ -157,7 +157,7 @@ impl Agent {
             };
 
             let mut stream = self
-                .client
+                .provider
                 .create_message_stream(&request)
                 .await
                 .map_err(chet_types::ChetError::Api)?;
@@ -518,6 +518,11 @@ fn truncate_for_display(s: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chet_api::AnthropicProvider;
+
+    fn make_provider() -> Arc<dyn Provider> {
+        Arc::new(AnthropicProvider::new("test-key", "https://api.example.com").unwrap())
+    }
 
     #[test]
     fn agent_event_cancelled_debug() {
@@ -546,11 +551,11 @@ mod tests {
 
     #[test]
     fn read_only_mode_defaults_false() {
-        let client = ApiClient::new("test-key", "https://api.example.com").unwrap();
+        let provider = make_provider();
         let registry = ToolRegistry::new();
         let permissions = Arc::new(PermissionEngine::ludicrous());
         let agent = Agent::new(
-            client,
+            provider,
             registry,
             permissions,
             "test".into(),
@@ -562,11 +567,11 @@ mod tests {
 
     #[test]
     fn set_read_only_mode_toggles() {
-        let client = ApiClient::new("test-key", "https://api.example.com").unwrap();
+        let provider = make_provider();
         let registry = ToolRegistry::new();
         let permissions = Arc::new(PermissionEngine::ludicrous());
         let mut agent = Agent::new(
-            client,
+            provider,
             registry,
             permissions,
             "test".into(),
