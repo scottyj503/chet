@@ -228,6 +228,18 @@ pub fn tool_blocked(name: &str, reason: &str) -> String {
     s
 }
 
+/// Plan mode banner: "PLAN MODE — read-only exploration, no file modifications"
+pub fn plan_mode_banner() -> String {
+    format!(
+        "{}{}PLAN MODE{} {} — read-only exploration, no file modifications{}",
+        SetForegroundColor(Color::Magenta),
+        SetAttribute(Attribute::Bold),
+        SetAttribute(Attribute::NoBold),
+        SetAttribute(Attribute::Dim),
+        SetAttribute(Attribute::Reset),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,6 +374,14 @@ mod tests {
         let result = tool_blocked("Write", "");
         assert!(result.contains('⊘'));
         assert!(result.contains("Write"));
+    }
+
+    #[test]
+    fn plan_mode_banner_contains_text_and_ansi() {
+        let banner = plan_mode_banner();
+        assert!(banner.contains("PLAN MODE"));
+        assert!(banner.contains("read-only"));
+        assert!(banner.contains('\x1b'));
     }
 
     #[test]

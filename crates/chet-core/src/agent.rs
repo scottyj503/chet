@@ -54,6 +54,7 @@ pub struct Agent {
     system_prompt: Option<String>,
     thinking_budget: Option<u32>,
     cwd: PathBuf,
+    read_only_mode: bool,
 }
 
 impl Agent {
@@ -74,6 +75,7 @@ impl Agent {
             system_prompt: None,
             thinking_budget: None,
             cwd,
+            read_only_mode: false,
         }
     }
 
@@ -83,6 +85,10 @@ impl Agent {
 
     pub fn set_thinking_budget(&mut self, budget: u32) {
         self.thinking_budget = Some(budget);
+    }
+
+    pub fn set_read_only_mode(&mut self, enabled: bool) {
+        self.read_only_mode = enabled;
     }
 
     /// Run the agent loop: send messages, handle tool calls, repeat until done.
@@ -113,11 +119,15 @@ impl Agent {
 
             // Build tool definitions with cache control on the last tool
             let tools = {
-                let mut defs = self.registry.definitions();
+                let mut defs = if self.read_only_mode {
+                    self.registry.read_only_definitions()
+                } else {
+                    self.registry.definitions()
+                };
                 if let Some(last) = defs.last_mut() {
                     last.cache_control = Some(CacheControl::ephemeral());
                 }
-                Some(defs)
+                if defs.is_empty() { None } else { Some(defs) }
             };
 
             // Build thinking config if budget is set
@@ -310,6 +320,22 @@ impl Agent {
             let mut tool_results = Vec::new();
             for (tool_id, tool_name, tool_input) in &tool_uses {
                 let is_read_only = self.registry.is_read_only(tool_name).unwrap_or(false);
+
+                // Safety net: block non-read-only tools in plan mode
+                if self.read_only_mode && !is_read_only {
+                    on_event(AgentEvent::ToolBlocked {
+                        name: tool_name.clone(),
+                        reason: "plan mode (read-only)".to_string(),
+                    });
+                    tool_results.push(ContentBlock::ToolResult {
+                        tool_use_id: tool_id.clone(),
+                        content: vec![ToolResultContent::Text {
+                            text: "Blocked: plan mode only allows read-only tools".to_string(),
+                        }],
+                        is_error: Some(true),
+                    });
+                    continue;
+                }
 
                 // 1. Check permissions
                 let decision = self.permissions.check(tool_name, tool_input, is_read_only);
@@ -515,6 +541,41 @@ mod tests {
         let token = CancellationToken::new();
         token.cancel();
         assert!(token.is_cancelled());
+    }
+
+    #[test]
+    fn read_only_mode_defaults_false() {
+        let client = ApiClient::new("test-key", "https://api.example.com").unwrap();
+        let registry = ToolRegistry::new();
+        let permissions = PermissionEngine::ludicrous();
+        let agent = Agent::new(
+            client,
+            registry,
+            permissions,
+            "test".into(),
+            1024,
+            PathBuf::from("/tmp"),
+        );
+        assert!(!agent.read_only_mode);
+    }
+
+    #[test]
+    fn set_read_only_mode_toggles() {
+        let client = ApiClient::new("test-key", "https://api.example.com").unwrap();
+        let registry = ToolRegistry::new();
+        let permissions = PermissionEngine::ludicrous();
+        let mut agent = Agent::new(
+            client,
+            registry,
+            permissions,
+            "test".into(),
+            1024,
+            PathBuf::from("/tmp"),
+        );
+        agent.set_read_only_mode(true);
+        assert!(agent.read_only_mode);
+        agent.set_read_only_mode(false);
+        assert!(!agent.read_only_mode);
     }
 
     #[test]

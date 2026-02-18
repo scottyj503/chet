@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 5c COMPLETE — Ready for Phase 5d (Plan Mode)
+## Current Phase: Phase 5d COMPLETE — Ready for Phase 6 (Subagents)
 
 ## Phase Status
 
@@ -15,12 +15,12 @@
 | 5a | Custom Line Editor | **COMPLETE** | crossterm raw mode, arrow keys, history, tab completion |
 | 5b | Streaming Markdown Renderer | **COMPLETE** | syntect highlighting, line-level buffer, inline markdown, styled output |
 | 5c | Tool Output Polish | **COMPLETE** | Spinner, styled tool icons, Ctrl+C cancellation, table rendering |
-| 5d | Plan Mode | Not started | Read-only agent mode, plan file output, user approval gate before implementation |
-| 6 | Multi-Provider API | Not started | Rate limit handling with backoff (429 responses) |
-| 7 | LSP Client | Not started | |
+| 5d | Plan Mode | **COMPLETE** | Read-only agent mode, /plan command, plan file output, user approval gate |
+| 6 | Subagent System | Not started | Lazy-load on demand, enables CI/CD parallel agents |
+| 7 | Multi-Provider API | Not started | Rate limit handling with backoff (429 responses) |
 | 8 | MCP Integration | Not started | Lazy-load MCP servers on demand |
 | 9 | Plugin System | Not started | Hot-reload: plugins available immediately without restart |
-| 10 | Subagent System | Not started | Lazy-load subagents on demand |
+| 10 | LSP Client | Not started | |
 | 11 | Bash Sandboxing | Not started | |
 | 12 | Polish & Distribution | Not started | Bounded memory for Bash tool output, platform-correct temp dirs |
 
@@ -36,10 +36,11 @@
 - Phase 5a: Custom line editor (chet-terminal crate) — crossterm raw mode, LineBuffer with cursor, History with file persistence, SlashCommandCompleter, TerminalRenderer, panic hook for raw mode safety
 - Phase 5b: Streaming markdown renderer — StreamingMarkdownRenderer (line buffer + inline parse + state machine), CodeHighlighter (syntect), style helpers, tool events moved to stderr. Deferred: table rendering (needs full buffering), spinners/Ctrl+C/tool colors (Phase 5c)
 - Phase 5c: Tool output polish — styled tool events (⚡✓✗⊘ icons with colors), braille spinner during API/tool execution, Ctrl+C cancellation via CancellationToken (returns to prompt), markdown table rendering with box-drawing characters and alignment
+- Phase 5d: Plan mode — `/plan` command toggles read-only mode (Read/Glob/Grep only), plan system prompt, plan file output to `~/.chet/plans/`, approval gate (approve/refine/discard), `pop_last_turn()` for discard, dynamic `plan> ` prompt
 
 ## Test Summary
 
-- 216 unit tests passing (10 SSE/stream, 4 config, 6 core/agent, 19 tools, 24 permissions, 23 session, 7 message types, 123 terminal)
+- 225 unit tests passing (10 SSE/stream, 4 config, 8 core/agent, 20 tools, 24 permissions, 23 session, 7 message types, 124 terminal, 9 cli)
 - 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working
@@ -90,3 +91,4 @@ Bugs found and fixed:
 | 2026-02-17 | Session IDs: UUID with prefix matching | --resume a1b2c3 matches, errors if ambiguous |
 | 2026-02-18 | Live API testing before Phase 5 | Validate plumbing before building rich UI |
 | 2026-02-18 | Phase 5 split into 5a/5b/5c | Line editor, markdown renderer, tool output polish |
+| 2026-02-18 | Reorder: subagents moved from 10→6 | No deps on phases 7-9; enables CI/CD direction early; LSP moved to 10 (independent, lower priority) |

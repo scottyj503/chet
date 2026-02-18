@@ -38,6 +38,15 @@ impl ToolRegistry {
         self.tools.values().map(|t| t.definition()).collect()
     }
 
+    /// Get only read-only tool definitions (for plan mode).
+    pub fn read_only_definitions(&self) -> Vec<ToolDefinition> {
+        self.tools
+            .values()
+            .filter(|t| t.is_read_only())
+            .map(|t| t.definition())
+            .collect()
+    }
+
     /// Execute a tool by name with the given input.
     pub async fn execute(
         &self,
@@ -65,5 +74,25 @@ impl ToolRegistry {
 impl Default for ToolRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_only_definitions_returns_only_read_only_tools() {
+        let registry = ToolRegistry::with_builtins();
+        let defs = registry.read_only_definitions();
+        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+        // Read, Glob, Grep are read-only; Write, Edit, Bash are not
+        assert!(names.contains(&"Read"));
+        assert!(names.contains(&"Glob"));
+        assert!(names.contains(&"Grep"));
+        assert!(!names.contains(&"Write"));
+        assert!(!names.contains(&"Edit"));
+        assert!(!names.contains(&"Bash"));
+        assert_eq!(defs.len(), 3);
     }
 }

@@ -13,7 +13,7 @@ use chet_tools::ToolRegistry;
 use chet_types::{ContentBlock, Message, Role, Usage};
 use chrono::Utc;
 use clap::Parser;
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -151,7 +151,7 @@ async fn repl(
     cwd: &std::path::Path,
     resume_id: Option<String>,
 ) -> Result<()> {
-    let agent = create_agent(client, permissions, config, cwd);
+    let mut agent = create_agent(client, permissions, config, cwd);
     let store = SessionStore::new(config.config_dir.clone())
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -183,6 +183,7 @@ async fn repl(
         "/compact",
         "/sessions",
         "/resume",
+        "/plan",
     ])));
 
     let thinking_info = match config.thinking_budget {
@@ -198,8 +199,11 @@ async fn repl(
     );
     eprintln!("Type your message. Press Ctrl+D to exit.\n");
 
+    let mut plan_mode = false;
+
     loop {
-        let input = match editor.read_line("> ").await? {
+        let prompt = if plan_mode { "plan> " } else { "> " };
+        let input = match editor.read_line(prompt).await? {
             ReadLineResult::Line(line) => line,
             ReadLineResult::Eof => {
                 eprintln!();
@@ -210,6 +214,24 @@ async fn repl(
 
         let input = input.trim();
         if input.is_empty() {
+            continue;
+        }
+
+        // Handle /plan toggle before other slash commands
+        if input == "/plan" {
+            if plan_mode {
+                // Exit plan mode
+                plan_mode = false;
+                agent.set_read_only_mode(false);
+                agent.set_system_prompt(system_prompt(cwd));
+                eprintln!("Exited plan mode.");
+            } else {
+                // Enter plan mode
+                plan_mode = true;
+                agent.set_read_only_mode(true);
+                agent.set_system_prompt(plan_system_prompt(cwd));
+                eprintln!("{}", chet_terminal::style::plan_mode_banner());
+            }
             continue;
         }
 
@@ -233,6 +255,42 @@ async fn repl(
             Ok(usage) => {
                 session.total_usage.add(&usage);
                 session.updated_at = Utc::now();
+
+                // In plan mode, save plan to file and prompt for approval
+                if plan_mode {
+                    if let Some(plan_text) = extract_last_assistant_text(&session.messages) {
+                        let plan_path =
+                            save_plan_file(&config.config_dir, &session, &plan_text).await;
+                        if let Some(path) = plan_path {
+                            eprintln!("\nPlan saved to {}", path.display());
+                        }
+                    }
+
+                    eprintln!();
+                    eprintln!("Plan complete. What would you like to do?");
+                    eprintln!("  [a]pprove — exit plan mode, keep plan as context");
+                    eprintln!("  [r]efine  — stay in plan mode, provide refinements");
+                    eprintln!("  [d]iscard — discard plan and exit plan mode");
+
+                    match prompt_plan_approval().await {
+                        PlanApproval::Approve => {
+                            plan_mode = false;
+                            agent.set_read_only_mode(false);
+                            agent.set_system_prompt(system_prompt(cwd));
+                            eprintln!("Plan approved. Exiting plan mode.");
+                        }
+                        PlanApproval::Refine => {
+                            eprintln!("Staying in plan mode. Provide your refinements.");
+                        }
+                        PlanApproval::Discard => {
+                            pop_last_turn(&mut session.messages);
+                            plan_mode = false;
+                            agent.set_read_only_mode(false);
+                            agent.set_system_prompt(system_prompt(cwd));
+                            eprintln!("Plan discarded. Exiting plan mode.");
+                        }
+                    }
+                }
 
                 // Auto-save
                 if let Err(e) = store.save(&session).await {
@@ -562,6 +620,7 @@ fn print_usage(usage: &Usage) {
 fn print_help() {
     eprintln!("Available commands:");
     eprintln!("  /help     — Show this help");
+    eprintln!("  /plan     — Toggle plan mode (read-only exploration)");
     eprintln!("  /model    — Show current model");
     eprintln!("  /cost     — Show token usage");
     eprintln!("  /context  — Show detailed context window usage");
@@ -573,4 +632,271 @@ fn print_help() {
     eprintln!();
     eprintln!("Flags:");
     eprintln!("  --thinking-budget <N>  — Enable extended thinking (token budget)");
+}
+
+fn plan_system_prompt(cwd: &std::path::Path) -> String {
+    format!(
+        "You are Chet, an AI coding assistant running in PLAN MODE.\n\n\
+         Current working directory: {}\n\n\
+         In plan mode, you can ONLY use read-only tools (Read, Glob, Grep) to explore the codebase.\n\
+         You CANNOT modify files, run commands, or make any changes.\n\n\
+         Your task is to:\n\
+         1. Explore the codebase using the available read-only tools\n\
+         2. Understand the existing code structure and patterns\n\
+         3. Produce a clear, structured implementation plan in markdown\n\n\
+         Your plan should include:\n\
+         - Summary of proposed changes\n\
+         - Files to modify or create\n\
+         - Step-by-step implementation approach\n\
+         - Key considerations or risks\n\n\
+         Be thorough in exploration but concise in your plan.",
+        cwd.display()
+    )
+}
+
+/// Extract text content from the last assistant message.
+fn extract_last_assistant_text(messages: &[Message]) -> Option<String> {
+    messages.iter().rev().find_map(|m| {
+        if m.role == Role::Assistant {
+            let text: String = m
+                .content
+                .iter()
+                .filter_map(|b| match b {
+                    ContentBlock::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            if text.is_empty() { None } else { Some(text) }
+        } else {
+            None
+        }
+    })
+}
+
+/// Save plan text to ~/.chet/plans/<short-session-id>-<timestamp>.md
+async fn save_plan_file(
+    config_dir: &std::path::Path,
+    session: &Session,
+    plan_text: &str,
+) -> Option<std::path::PathBuf> {
+    let plans_dir = config_dir.join("plans");
+    if let Err(e) = tokio::fs::create_dir_all(&plans_dir).await {
+        eprintln!("Warning: failed to create plans directory: {e}");
+        return None;
+    }
+
+    let timestamp = Utc::now().format("%Y%m%dT%H%M");
+    let filename = format!("{}-{}.md", session.short_id(), timestamp);
+    let path = plans_dir.join(&filename);
+
+    match tokio::fs::write(&path, plan_text).await {
+        Ok(()) => Some(path),
+        Err(e) => {
+            eprintln!("Warning: failed to save plan file: {e}");
+            None
+        }
+    }
+}
+
+enum PlanApproval {
+    Approve,
+    Refine,
+    Discard,
+}
+
+async fn prompt_plan_approval() -> PlanApproval {
+    eprint!("  > ");
+    let _ = io::stderr().flush();
+
+    let result = tokio::task::spawn_blocking(|| {
+        let stdin = io::stdin();
+        let mut line = String::new();
+        stdin.lock().read_line(&mut line).ok();
+        line
+    })
+    .await
+    .unwrap_or_default();
+
+    match result.trim().to_lowercase().as_str() {
+        "a" | "approve" => PlanApproval::Approve,
+        "r" | "refine" => PlanApproval::Refine,
+        "d" | "discard" => PlanApproval::Discard,
+        _ => {
+            eprintln!("Invalid choice, defaulting to refine.");
+            PlanApproval::Refine
+        }
+    }
+}
+
+/// Remove the last turn (user message + assistant response + any tool-result messages).
+/// Peels from the end: assistant messages, tool-result user messages, then the triggering user text.
+fn pop_last_turn(messages: &mut Vec<Message>) {
+    // Pop trailing assistant messages
+    while let Some(last) = messages.last() {
+        if last.role == Role::Assistant {
+            messages.pop();
+        } else {
+            break;
+        }
+    }
+
+    // Pop tool-result user messages (content is all ToolResult blocks)
+    while let Some(last) = messages.last() {
+        if last.role == Role::User && is_tool_result_message(last) {
+            messages.pop();
+        } else {
+            break;
+        }
+    }
+
+    // Pop assistant messages interleaved with tool results
+    while let Some(last) = messages.last() {
+        if last.role == Role::Assistant {
+            messages.pop();
+            // After popping assistant, check for more tool-result messages
+            while let Some(last) = messages.last() {
+                if last.role == Role::User && is_tool_result_message(last) {
+                    messages.pop();
+                } else {
+                    break;
+                }
+            }
+        } else {
+            break;
+        }
+    }
+
+    // Pop the triggering user text message
+    if let Some(last) = messages.last() {
+        if last.role == Role::User && !is_tool_result_message(last) {
+            messages.pop();
+        }
+    }
+}
+
+fn is_tool_result_message(msg: &Message) -> bool {
+    !msg.content.is_empty()
+        && msg
+            .content
+            .iter()
+            .all(|b| matches!(b, ContentBlock::ToolResult { .. }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chet_types::ToolResultContent;
+
+    fn text_msg(role: Role, text: &str) -> Message {
+        Message {
+            role,
+            content: vec![ContentBlock::Text {
+                text: text.to_string(),
+            }],
+        }
+    }
+
+    fn tool_result_msg(tool_use_id: &str, text: &str) -> Message {
+        Message {
+            role: Role::User,
+            content: vec![ContentBlock::ToolResult {
+                tool_use_id: tool_use_id.to_string(),
+                content: vec![ToolResultContent::Text {
+                    text: text.to_string(),
+                }],
+                is_error: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn pop_last_turn_simple_exchange() {
+        let mut msgs = vec![
+            text_msg(Role::User, "hello"),
+            text_msg(Role::Assistant, "hi there"),
+        ];
+        pop_last_turn(&mut msgs);
+        assert!(msgs.is_empty());
+    }
+
+    #[test]
+    fn pop_last_turn_with_tool_results() {
+        let mut msgs = vec![
+            text_msg(Role::User, "earlier question"),
+            text_msg(Role::Assistant, "earlier answer"),
+            text_msg(Role::User, "read my files"),
+            text_msg(Role::Assistant, "let me read"), // assistant with tool_use
+            tool_result_msg("t1", "file contents"),   // tool result
+            text_msg(Role::Assistant, "here's the answer"), // final assistant
+        ];
+        pop_last_turn(&mut msgs);
+        // Should preserve only the earlier exchange
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].role, Role::User);
+        assert_eq!(msgs[1].role, Role::Assistant);
+    }
+
+    #[test]
+    fn pop_last_turn_preserves_earlier_messages() {
+        let mut msgs = vec![
+            text_msg(Role::User, "first"),
+            text_msg(Role::Assistant, "first reply"),
+            text_msg(Role::User, "second"),
+            text_msg(Role::Assistant, "second reply"),
+        ];
+        pop_last_turn(&mut msgs);
+        assert_eq!(msgs.len(), 2);
+        if let ContentBlock::Text { text } = &msgs[0].content[0] {
+            assert_eq!(text, "first");
+        }
+    }
+
+    #[test]
+    fn pop_last_turn_empty() {
+        let mut msgs: Vec<Message> = vec![];
+        pop_last_turn(&mut msgs);
+        assert!(msgs.is_empty());
+    }
+
+    #[test]
+    fn plan_system_prompt_contains_key_directives() {
+        let prompt = plan_system_prompt(std::path::Path::new("/tmp"));
+        assert!(prompt.contains("PLAN MODE"));
+        assert!(prompt.contains("read-only"));
+        assert!(prompt.contains("/tmp"));
+        assert!(prompt.contains("Read"));
+        assert!(prompt.contains("Glob"));
+        assert!(prompt.contains("Grep"));
+    }
+
+    #[test]
+    fn extract_last_assistant_text_finds_text() {
+        let msgs = vec![
+            text_msg(Role::User, "hello"),
+            text_msg(Role::Assistant, "the plan"),
+        ];
+        assert_eq!(
+            extract_last_assistant_text(&msgs),
+            Some("the plan".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_last_assistant_text_skips_user() {
+        let msgs = vec![text_msg(Role::User, "hello")];
+        assert_eq!(extract_last_assistant_text(&msgs), None);
+    }
+
+    #[test]
+    fn is_tool_result_message_true() {
+        let msg = tool_result_msg("t1", "output");
+        assert!(is_tool_result_message(&msg));
+    }
+
+    #[test]
+    fn is_tool_result_message_false_for_text() {
+        let msg = text_msg(Role::User, "hello");
+        assert!(!is_tool_result_message(&msg));
+    }
 }
