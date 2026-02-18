@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 5d COMPLETE — Ready for Phase 6 (Subagents)
+## Current Phase: Phase 6 COMPLETE — Ready for Phase 7 (Multi-Provider API)
 
 ## Phase Status
 
@@ -16,7 +16,7 @@
 | 5b | Streaming Markdown Renderer | **COMPLETE** | syntect highlighting, line-level buffer, inline markdown, styled output |
 | 5c | Tool Output Polish | **COMPLETE** | Spinner, styled tool icons, Ctrl+C cancellation, table rendering |
 | 5d | Plan Mode | **COMPLETE** | Read-only agent mode, /plan command, plan file output, user approval gate |
-| 6 | Subagent System | Not started | Lazy-load on demand, enables CI/CD parallel agents |
+| 6 | Subagent System | **COMPLETE** | SubagentTool, shared Arc<PermissionEngine>, builtins-only child, silent execution |
 | 7 | Multi-Provider API | Not started | Rate limit handling with backoff (429 responses) |
 | 8 | MCP Integration | Not started | Lazy-load MCP servers on demand |
 | 9 | Plugin System | Not started | Hot-reload: plugins available immediately without restart |
@@ -37,10 +37,11 @@
 - Phase 5b: Streaming markdown renderer — StreamingMarkdownRenderer (line buffer + inline parse + state machine), CodeHighlighter (syntect), style helpers, tool events moved to stderr. Deferred: table rendering (needs full buffering), spinners/Ctrl+C/tool colors (Phase 5c)
 - Phase 5c: Tool output polish — styled tool events (⚡✓✗⊘ icons with colors), braille spinner during API/tool execution, Ctrl+C cancellation via CancellationToken (returns to prompt), markdown table rendering with box-drawing characters and alignment
 - Phase 5d: Plan mode — `/plan` command toggles read-only mode (Read/Glob/Grep only), plan system prompt, plan file output to `~/.chet/plans/`, approval gate (approve/refine/discard), `pop_last_turn()` for discard, dynamic `plan> ` prompt
+- Phase 6: Subagent system — `SubagentTool` in chet-core, `Agent` takes `Arc<PermissionEngine>` (shared between parent/child), child gets builtins-only registry (no SubagentTool → no recursion), runs silently with no-op event callback, extracts last assistant text as tool result
 
 ## Test Summary
 
-- 225 unit tests passing (10 SSE/stream, 4 config, 8 core/agent, 20 tools, 24 permissions, 23 session, 7 message types, 124 terminal, 9 cli)
+- 231 unit tests passing (10 SSE/stream, 4 config, 14 core/agent+subagent, 20 tools, 24 permissions, 23 session, 7 message types, 124 terminal, 9 cli)
 - 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working

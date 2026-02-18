@@ -5,7 +5,7 @@ mod prompt;
 use anyhow::{Context, Result};
 use chet_api::ApiClient;
 use chet_config::{ChetConfig, CliOverrides};
-use chet_core::{Agent, AgentEvent};
+use chet_core::{Agent, AgentEvent, SubagentTool};
 use chet_permissions::PermissionEngine;
 use chet_session::{ContextTracker, Session, SessionStore, compact};
 use chet_terminal::{LineEditor, ReadLineResult, SlashCommandCompleter, StreamingMarkdownRenderer};
@@ -91,11 +91,11 @@ async fn main() -> Result<()> {
 
     if let Some(prompt) = cli.print {
         // Print mode: single prompt, no session persistence
-        let engine = if cli.ludicrous {
+        let engine = Arc::new(if cli.ludicrous {
             PermissionEngine::ludicrous()
         } else {
             PermissionEngine::new(config.permission_rules.clone(), config.hooks.clone(), None)
-        };
+        });
         let agent = create_agent(client, engine, &config, &cwd);
         let mut messages = vec![user_message(&prompt)];
         let usage = run_agent(&agent, &mut messages).await?;
@@ -104,7 +104,7 @@ async fn main() -> Result<()> {
     }
 
     // Interactive REPL mode
-    let engine = if cli.ludicrous {
+    let engine = Arc::new(if cli.ludicrous {
         PermissionEngine::ludicrous()
     } else {
         let prompt_handler: Option<Arc<dyn chet_permissions::PromptHandler>> = if is_interactive {
@@ -117,18 +117,25 @@ async fn main() -> Result<()> {
             config.hooks.clone(),
             prompt_handler,
         )
-    };
+    });
 
     repl(client, engine, &config, &cwd, cli.resume).await
 }
 
 fn create_agent(
     client: ApiClient,
-    permissions: PermissionEngine,
+    permissions: Arc<PermissionEngine>,
     config: &ChetConfig,
     cwd: &std::path::Path,
 ) -> Agent {
-    let registry = ToolRegistry::with_builtins();
+    let mut registry = ToolRegistry::with_builtins();
+    registry.register(Arc::new(SubagentTool::new(
+        client.clone(),
+        Arc::clone(&permissions),
+        config.model.clone(),
+        config.max_tokens,
+        cwd.to_path_buf(),
+    )));
     let mut agent = Agent::new(
         client,
         registry,
@@ -146,7 +153,7 @@ fn create_agent(
 
 async fn repl(
     client: ApiClient,
-    permissions: PermissionEngine,
+    permissions: Arc<PermissionEngine>,
     config: &ChetConfig,
     cwd: &std::path::Path,
     resume_id: Option<String>,

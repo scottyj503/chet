@@ -12,6 +12,7 @@ use chet_types::{
 };
 use futures_util::StreamExt;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 /// Maximum number of consecutive tool-use loops before stopping.
@@ -48,7 +49,7 @@ pub enum AgentEvent {
 pub struct Agent {
     client: ApiClient,
     registry: ToolRegistry,
-    permissions: PermissionEngine,
+    permissions: Arc<PermissionEngine>,
     model: String,
     max_tokens: u32,
     system_prompt: Option<String>,
@@ -61,7 +62,7 @@ impl Agent {
     pub fn new(
         client: ApiClient,
         registry: ToolRegistry,
-        permissions: PermissionEngine,
+        permissions: Arc<PermissionEngine>,
         model: String,
         max_tokens: u32,
         cwd: PathBuf,
@@ -547,7 +548,7 @@ mod tests {
     fn read_only_mode_defaults_false() {
         let client = ApiClient::new("test-key", "https://api.example.com").unwrap();
         let registry = ToolRegistry::new();
-        let permissions = PermissionEngine::ludicrous();
+        let permissions = Arc::new(PermissionEngine::ludicrous());
         let agent = Agent::new(
             client,
             registry,
@@ -563,7 +564,7 @@ mod tests {
     fn set_read_only_mode_toggles() {
         let client = ApiClient::new("test-key", "https://api.example.com").unwrap();
         let registry = ToolRegistry::new();
-        let permissions = PermissionEngine::ludicrous();
+        let permissions = Arc::new(PermissionEngine::ludicrous());
         let mut agent = Agent::new(
             client,
             registry,

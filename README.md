@@ -7,7 +7,7 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 ## Features
 
 - **Streaming chat** — real-time SSE streaming from the Anthropic API
-- **Built-in tools** — Read, Write, Edit, Bash, Glob, Grep
+- **Built-in tools** — Read, Write, Edit, Bash, Glob, Grep, Subagent
 - **Agent loop** — automatic tool use cycles (Claude calls tools, gets results, continues)
 - **Permission system** — permit/block/prompt rules, before/after hooks, `--ludicrous` mode
 - **Session management** — auto-save, `--resume`, `/compact`, context tracking
@@ -15,6 +15,7 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 - **Extended thinking** — opt-in via `--thinking-budget`
 - **Streaming markdown** — bold, italic, headings, code blocks with syntax highlighting, lists, links, blockquotes, tables with box-drawing
 - **Tool output polish** — spinner during API/tool execution, styled tool icons (⚡✓✗⊘), Ctrl+C returns to prompt
+- **Subagents** — delegate complex sub-tasks to child agents that run silently and return results
 - **Plan mode** — `/plan` toggles read-only exploration mode (Read/Glob/Grep only), produces structured plans, approve/refine/discard workflow
 - **Line editor** — arrow keys, Home/End, word movement, history, tab completion for slash commands
 - **REPL + print mode** — interactive or single-shot (`chet -p "explain this code"`)
@@ -114,7 +115,7 @@ Chet is a Cargo workspace with focused crates:
 | `chet-cli` | Binary: CLI entry, REPL, arg parsing |
 | `chet-core` | Agent loop, conversation orchestration |
 | `chet-api` | Anthropic API client, SSE streaming |
-| `chet-tools` | Tool trait + built-in tools (Read, Write, Edit, Bash, Glob, Grep) |
+| `chet-tools` | Tool trait + built-in tools (Read, Write, Edit, Bash, Glob, Grep); Subagent tool lives in chet-core |
 | `chet-config` | Multi-tier TOML settings |
 | `chet-types` | Shared types, error hierarchy |
 | `chet-permissions` | Permission engine, rule matcher, hook runner |
@@ -131,7 +132,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (225 tests — runs fast, no API key needed)
+# Unit tests (231 tests — runs fast, no API key needed)
 cargo test --workspace
 
 # Integration tests (6 tests — mock SSE pipeline, on-demand)
