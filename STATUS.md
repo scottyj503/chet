@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: 4.5 — Prompt Caching + Extended Thinking (COMPLETE)
+## Current Phase: Live API Testing COMPLETE — Ready for Phase 5 (Terminal UI)
 
 ## Phase Status
 
@@ -12,7 +12,9 @@
 | 3 | Permission System | **COMPLETE** | Rules, hooks, engine, CLI prompt |
 | 4 | Session Management | **COMPLETE** | Session persistence, context tracking, compaction |
 | 4.5 | Prompt Caching + Extended Thinking | **COMPLETE** | Cache control on system/tools, --thinking-budget flag, thinking block capture fix |
-| 5 | Rich Terminal UI | Not started | Custom line editor (crossterm raw mode), real-time spell checking, input history |
+| 5a | Custom Line Editor | Not started | crossterm raw mode, arrow keys, history, tab completion |
+| 5b | Streaming Markdown Renderer | Not started | pulldown-cmark, syntect, line-level buffer + inline lookahead |
+| 5c | Tool Output Polish | Not started | Spinners, colors, Ctrl+C handling |
 | 6 | Multi-Provider API | Not started | |
 | 7 | LSP Client | Not started | |
 | 8 | MCP Integration | Not started | Lazy-load MCP servers on demand |
@@ -30,9 +32,20 @@
 - Phase 4: chet-session (Session/SessionStore/ContextTracker/compact), JSON persistence in ~/.chet/sessions/, --resume flag, /context /compact /sessions /resume commands, auto-save after each turn, context line display
 - Phase 4.5: Prompt caching (CacheControl on system prompt + last tool definition, always on), extended thinking (--thinking-budget flag, ThinkingConfig, thinking block capture bug fix)
 
+## Completed Tasks
+
+- Phase 0: Cargo workspace with 13 crates, shared types (Message, ContentBlock, Tool trait, error hierarchy), CI pipeline, cargo-deny
+- Phase 1: chet-api (SSE streaming client), chet-config (TOML settings, API key), chet-cli (clap args, REPL, print mode, slash commands)
+- Phase 2: chet-tools (6 built-in tools: Read, Write, Edit, Bash, Glob, Grep), tool registry, chet-core (agent loop with tool use cycles)
+- Phase 3: chet-permissions (permission engine, rule matcher, hook runner, prompt handler), config integration, agent integration, --ludicrous CLI flag
+- Phase 4: chet-session (Session/SessionStore/ContextTracker/compact), JSON persistence in ~/.chet/sessions/, --resume flag, /context /compact /sessions /resume commands, auto-save after each turn, context line display
+- Phase 4.5: Prompt caching (CacheControl on system prompt + last tool definition, always on), extended thinking (--thinking-budget flag, ThinkingConfig, thinking block capture bug fix)
+- Live API testing: Validated all phases against real Anthropic API, fixed 2 bugs, added integration test suite
+
 ## Test Summary
 
-- 82 tests passing (5 SSE parser, 4 config, 19 tools, 24 permissions, 23 session, 7 message types)
+- 87 unit tests passing (10 SSE/stream, 4 config, 19 tools, 24 permissions, 23 session, 7 message types)
+- 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working
 
@@ -49,8 +62,9 @@ All Phases 0-4.5 validated against live Anthropic API:
 - **Session save**: Auto-save after each turn, /sessions lists saved — PASS
 - **Session resume**: --resume with prefix matching, conversation history preserved — PASS
 
-Bug found and fixed:
+Bugs found and fixed:
 - **MessageStream event drop**: When SSE parser returned multiple events from one byte chunk, only the first was yielded — rest silently dropped. Fixed by buffering parsed events in `pending_events` Vec.
+- **Usage deserialization**: `input_tokens` and `output_tokens` lacked `#[serde(default)]`, causing parse failures on `message_delta` events that only include `output_tokens`.
 
 ## Open Blockers
 
