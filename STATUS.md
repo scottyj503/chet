@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 5a COMPLETE — Ready for Phase 5b (Streaming Markdown)
+## Current Phase: Phase 5b COMPLETE — Ready for Phase 5c (Tool Output Polish)
 
 ## Phase Status
 
@@ -13,8 +13,9 @@
 | 4 | Session Management | **COMPLETE** | Session persistence, context tracking, compaction |
 | 4.5 | Prompt Caching + Extended Thinking | **COMPLETE** | Cache control on system/tools, --thinking-budget flag, thinking block capture fix |
 | 5a | Custom Line Editor | **COMPLETE** | crossterm raw mode, arrow keys, history, tab completion |
-| 5b | Streaming Markdown Renderer | Not started | pulldown-cmark, syntect, line-level buffer + inline lookahead |
-| 5c | Tool Output Polish | Not started | Spinners, colors, Ctrl+C handling |
+| 5b | Streaming Markdown Renderer | **COMPLETE** | syntect highlighting, line-level buffer, inline markdown, styled output |
+| 5c | Tool Output Polish | Not started | Spinners, colors, Ctrl+C handling, table rendering (deferred from 5b) |
+| 5d | Plan Mode | Not started | Read-only agent mode, plan file output, user approval gate before implementation |
 | 6 | Multi-Provider API | Not started | |
 | 7 | LSP Client | Not started | |
 | 8 | MCP Integration | Not started | Lazy-load MCP servers on demand |
@@ -31,21 +32,13 @@
 - Phase 3: chet-permissions (permission engine, rule matcher, hook runner, prompt handler), config integration, agent integration, --ludicrous CLI flag
 - Phase 4: chet-session (Session/SessionStore/ContextTracker/compact), JSON persistence in ~/.chet/sessions/, --resume flag, /context /compact /sessions /resume commands, auto-save after each turn, context line display
 - Phase 4.5: Prompt caching (CacheControl on system prompt + last tool definition, always on), extended thinking (--thinking-budget flag, ThinkingConfig, thinking block capture bug fix)
-
-## Completed Tasks
-
-- Phase 0: Cargo workspace with 13 crates, shared types (Message, ContentBlock, Tool trait, error hierarchy), CI pipeline, cargo-deny
-- Phase 1: chet-api (SSE streaming client), chet-config (TOML settings, API key), chet-cli (clap args, REPL, print mode, slash commands)
-- Phase 2: chet-tools (6 built-in tools: Read, Write, Edit, Bash, Glob, Grep), tool registry, chet-core (agent loop with tool use cycles)
-- Phase 3: chet-permissions (permission engine, rule matcher, hook runner, prompt handler), config integration, agent integration, --ludicrous CLI flag
-- Phase 4: chet-session (Session/SessionStore/ContextTracker/compact), JSON persistence in ~/.chet/sessions/, --resume flag, /context /compact /sessions /resume commands, auto-save after each turn, context line display
-- Phase 4.5: Prompt caching (CacheControl on system prompt + last tool definition, always on), extended thinking (--thinking-budget flag, ThinkingConfig, thinking block capture bug fix)
 - Live API testing: Validated all phases against real Anthropic API, fixed 2 bugs, added integration test suite
 - Phase 5a: Custom line editor (chet-terminal crate) — crossterm raw mode, LineBuffer with cursor, History with file persistence, SlashCommandCompleter, TerminalRenderer, panic hook for raw mode safety
+- Phase 5b: Streaming markdown renderer — StreamingMarkdownRenderer (line buffer + inline parse + state machine), CodeHighlighter (syntect), style helpers, tool events moved to stderr. Deferred: table rendering (needs full buffering), spinners/Ctrl+C/tool colors (Phase 5c)
 
 ## Test Summary
 
-- 139 unit tests passing (10 SSE/stream, 4 config, 19 tools, 24 permissions, 23 session, 7 message types, 52 terminal)
+- 184 unit tests passing (10 SSE/stream, 4 config, 19 tools, 24 permissions, 23 session, 7 message types, 97 terminal)
 - 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working

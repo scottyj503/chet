@@ -8,7 +8,7 @@ use chet_config::{ChetConfig, CliOverrides};
 use chet_core::{Agent, AgentEvent};
 use chet_permissions::PermissionEngine;
 use chet_session::{ContextTracker, Session, SessionStore, compact};
-use chet_terminal::{LineEditor, ReadLineResult, SlashCommandCompleter};
+use chet_terminal::{LineEditor, ReadLineResult, SlashCommandCompleter, StreamingMarkdownRenderer};
 use chet_tools::ToolRegistry;
 use chet_types::{ContentBlock, Message, Role, Usage};
 use chrono::Utc;
@@ -422,24 +422,23 @@ async fn handle_resume(session: &mut Session, store: &SessionStore, prefix: &str
     }
 }
 
-/// Run the agent loop and stream output to stdout.
+/// Run the agent loop and stream styled markdown output to stdout.
 async fn run_agent(agent: &Agent, messages: &mut Vec<Message>) -> Result<Usage> {
     let stdout = io::stdout();
-    let mut out = stdout.lock();
+    let mut renderer = StreamingMarkdownRenderer::new(Box::new(stdout.lock()));
 
     let usage = agent
         .run(messages, |event| match event {
             AgentEvent::TextDelta(text) => {
-                let _ = write!(out, "{text}");
-                let _ = out.flush();
+                renderer.push(&text);
             }
             AgentEvent::ThinkingDelta(text) => {
                 let _ = write!(io::stderr(), "\x1b[2m{text}\x1b[0m");
                 let _ = io::stderr().flush();
             }
             AgentEvent::ToolStart { name, .. } => {
-                let _ = writeln!(out);
-                let _ = writeln!(out, "  [tool: {name}]");
+                renderer.finish(); // flush any pending markdown
+                let _ = writeln!(io::stderr(), "  [tool: {name}]");
             }
             AgentEvent::ToolEnd {
                 name,
@@ -447,17 +446,18 @@ async fn run_agent(agent: &Agent, messages: &mut Vec<Message>) -> Result<Usage> 
                 is_error,
             } => {
                 if is_error {
-                    let _ = writeln!(out, "  [tool {name} error: {output}]");
+                    let _ = writeln!(io::stderr(), "  [tool {name} error: {output}]");
                 } else {
-                    let _ = writeln!(out, "  [tool {name} done: {output}]");
+                    let _ = writeln!(io::stderr(), "  [tool {name} done: {output}]");
                 }
             }
             AgentEvent::ToolBlocked { name, reason } => {
-                let _ = writeln!(out, "  [tool {name} blocked: {reason}]");
+                let _ = writeln!(io::stderr(), "  [tool {name} blocked: {reason}]");
             }
             AgentEvent::Usage(_) => {}
             AgentEvent::Done => {
-                let _ = writeln!(out);
+                renderer.finish();
+                let _ = writeln!(io::stdout());
             }
             AgentEvent::Error(e) => {
                 let _ = writeln!(io::stderr(), "Error: {e}");

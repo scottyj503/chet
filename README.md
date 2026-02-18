@@ -13,6 +13,7 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 - **Session management** — auto-save, `--resume`, `/compact`, context tracking
 - **Prompt caching** — automatic cache control on system prompt and tool definitions
 - **Extended thinking** — opt-in via `--thinking-budget`
+- **Streaming markdown** — bold, italic, headings, code blocks with syntax highlighting, lists, links, blockquotes
 - **Line editor** — arrow keys, Home/End, word movement, history, tab completion for slash commands
 - **REPL + print mode** — interactive or single-shot (`chet -p "explain this code"`)
 - **TOML config** — `~/.chet/config.toml` for persistent settings
@@ -115,7 +116,7 @@ Chet is a Cargo workspace with focused crates:
 | `chet-types` | Shared types, error hierarchy |
 | `chet-permissions` | Permission engine, rule matcher, hook runner |
 | `chet-session` | Session persistence, context tracking, compaction |
-| `chet-terminal` | Custom line editor, terminal rendering |
+| `chet-terminal` | Custom line editor, streaming markdown, syntax highlighting |
 | `chet-mcp` | MCP client *(planned)* |
 | `chet-plugins` | Plugin system *(planned)* |
 | `chet-lsp` | LSP client *(planned)* |
@@ -127,7 +128,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (139 tests — runs fast, no API key needed)
+# Unit tests (184 tests — runs fast, no API key needed)
 cargo test --workspace
 
 # Integration tests (6 tests — mock SSE pipeline, on-demand)
