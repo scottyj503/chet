@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 5b COMPLETE — Ready for Phase 5c (Tool Output Polish)
+## Current Phase: Phase 5c COMPLETE — Ready for Phase 5d (Plan Mode)
 
 ## Phase Status
 
@@ -14,15 +14,15 @@
 | 4.5 | Prompt Caching + Extended Thinking | **COMPLETE** | Cache control on system/tools, --thinking-budget flag, thinking block capture fix |
 | 5a | Custom Line Editor | **COMPLETE** | crossterm raw mode, arrow keys, history, tab completion |
 | 5b | Streaming Markdown Renderer | **COMPLETE** | syntect highlighting, line-level buffer, inline markdown, styled output |
-| 5c | Tool Output Polish | Not started | Spinners, colors, Ctrl+C handling, table rendering (deferred from 5b) |
+| 5c | Tool Output Polish | **COMPLETE** | Spinner, styled tool icons, Ctrl+C cancellation, table rendering |
 | 5d | Plan Mode | Not started | Read-only agent mode, plan file output, user approval gate before implementation |
-| 6 | Multi-Provider API | Not started | |
+| 6 | Multi-Provider API | Not started | Rate limit handling with backoff (429 responses) |
 | 7 | LSP Client | Not started | |
 | 8 | MCP Integration | Not started | Lazy-load MCP servers on demand |
-| 9 | Plugin System | Not started | |
+| 9 | Plugin System | Not started | Hot-reload: plugins available immediately without restart |
 | 10 | Subagent System | Not started | Lazy-load subagents on demand |
 | 11 | Bash Sandboxing | Not started | |
-| 12 | Polish & Distribution | Not started | |
+| 12 | Polish & Distribution | Not started | Bounded memory for Bash tool output, platform-correct temp dirs |
 
 ## Completed Tasks
 
@@ -35,10 +35,11 @@
 - Live API testing: Validated all phases against real Anthropic API, fixed 2 bugs, added integration test suite
 - Phase 5a: Custom line editor (chet-terminal crate) — crossterm raw mode, LineBuffer with cursor, History with file persistence, SlashCommandCompleter, TerminalRenderer, panic hook for raw mode safety
 - Phase 5b: Streaming markdown renderer — StreamingMarkdownRenderer (line buffer + inline parse + state machine), CodeHighlighter (syntect), style helpers, tool events moved to stderr. Deferred: table rendering (needs full buffering), spinners/Ctrl+C/tool colors (Phase 5c)
+- Phase 5c: Tool output polish — styled tool events (⚡✓✗⊘ icons with colors), braille spinner during API/tool execution, Ctrl+C cancellation via CancellationToken (returns to prompt), markdown table rendering with box-drawing characters and alignment
 
 ## Test Summary
 
-- 184 unit tests passing (10 SSE/stream, 4 config, 19 tools, 24 permissions, 23 session, 7 message types, 97 terminal)
+- 216 unit tests passing (10 SSE/stream, 4 config, 6 core/agent, 19 tools, 24 permissions, 23 session, 7 message types, 123 terminal)
 - 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working
@@ -63,6 +64,10 @@ Bugs found and fixed:
 ## Open Blockers
 
 - (none)
+
+## Future Test Items
+
+- **Cancellation integration test**: End-to-end test of `Agent::run()` with a `CancellationToken` cancelled mid-stream and mid-tool. Needs a mock HTTP server (e.g. `wiremock`) to stream SSE slowly. Can share infrastructure with Phase 6 rate-limit/retry tests.
 
 ## Product Direction
 

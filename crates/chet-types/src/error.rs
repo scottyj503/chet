@@ -23,6 +23,9 @@ pub enum ChetError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("Operation cancelled")]
+    Cancelled,
+
     #[error("{0}")]
     Other(String),
 }

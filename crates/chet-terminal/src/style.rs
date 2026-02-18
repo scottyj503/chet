@@ -146,6 +146,88 @@ pub fn list_number(n: u32, depth: u8) -> String {
     )
 }
 
+// ---------------------------------------------------------------------------
+// Tool event styling
+// ---------------------------------------------------------------------------
+
+/// Format a tool start event: "  ⚡ name" (cyan icon, bold name).
+pub fn tool_start(name: &str) -> String {
+    format!(
+        "  {}⚡{} {}{}{}",
+        SetForegroundColor(Color::Cyan),
+        SetForegroundColor(Color::Reset),
+        SetAttribute(Attribute::Bold),
+        name,
+        SetAttribute(Attribute::Reset),
+    )
+}
+
+/// Format a tool success event: "  ✓ name output" (green icon).
+pub fn tool_success(name: &str, output: &str) -> String {
+    let mut s = format!(
+        "  {}✓{} {}{}{}",
+        SetForegroundColor(Color::Green),
+        SetForegroundColor(Color::Reset),
+        SetAttribute(Attribute::Bold),
+        name,
+        SetAttribute(Attribute::Reset),
+    );
+    if !output.is_empty() {
+        let _ = write!(
+            s,
+            " {}{}{}",
+            SetAttribute(Attribute::Dim),
+            output,
+            SetAttribute(Attribute::Reset),
+        );
+    }
+    s
+}
+
+/// Format a tool error event: "  ✗ name output" (red icon).
+pub fn tool_error(name: &str, output: &str) -> String {
+    let mut s = format!(
+        "  {}✗{} {}{}{}",
+        SetForegroundColor(Color::Red),
+        SetForegroundColor(Color::Reset),
+        SetAttribute(Attribute::Bold),
+        name,
+        SetAttribute(Attribute::Reset),
+    );
+    if !output.is_empty() {
+        let _ = write!(
+            s,
+            " {}{}{}",
+            SetForegroundColor(Color::Red),
+            output,
+            SetForegroundColor(Color::Reset),
+        );
+    }
+    s
+}
+
+/// Format a tool blocked event: "  ⊘ name reason" (yellow icon).
+pub fn tool_blocked(name: &str, reason: &str) -> String {
+    let mut s = format!(
+        "  {}⊘{} {}{}{}",
+        SetForegroundColor(Color::Yellow),
+        SetForegroundColor(Color::Reset),
+        SetAttribute(Attribute::Bold),
+        name,
+        SetAttribute(Attribute::Reset),
+    );
+    if !reason.is_empty() {
+        let _ = write!(
+            s,
+            " {}{}{}",
+            SetForegroundColor(Color::Yellow),
+            reason,
+            SetForegroundColor(Color::Reset),
+        );
+    }
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +304,71 @@ mod tests {
         let n = list_number(3, 0);
         assert!(n.contains("3"));
         assert!(n.contains('.'));
+    }
+
+    // --- Tool styling tests ---
+
+    #[test]
+    fn tool_start_contains_icon_and_name() {
+        let result = tool_start("Bash");
+        assert!(result.contains('⚡'));
+        assert!(result.contains("Bash"));
+        assert!(result.contains('\x1b'));
+    }
+
+    #[test]
+    fn tool_success_contains_icon_name_output() {
+        let result = tool_success("Read", "42 lines");
+        assert!(result.contains('✓'));
+        assert!(result.contains("Read"));
+        assert!(result.contains("42 lines"));
+        assert!(result.contains('\x1b'));
+    }
+
+    #[test]
+    fn tool_success_no_output() {
+        let result = tool_success("Write", "");
+        assert!(result.contains('✓'));
+        assert!(result.contains("Write"));
+    }
+
+    #[test]
+    fn tool_error_contains_icon_name_output() {
+        let result = tool_error("Bash", "exit code 1");
+        assert!(result.contains('✗'));
+        assert!(result.contains("Bash"));
+        assert!(result.contains("exit code 1"));
+        assert!(result.contains('\x1b'));
+    }
+
+    #[test]
+    fn tool_error_no_output() {
+        let result = tool_error("Bash", "");
+        assert!(result.contains('✗'));
+        assert!(result.contains("Bash"));
+    }
+
+    #[test]
+    fn tool_blocked_contains_icon_name_reason() {
+        let result = tool_blocked("Write", "not permitted");
+        assert!(result.contains('⊘'));
+        assert!(result.contains("Write"));
+        assert!(result.contains("not permitted"));
+        assert!(result.contains('\x1b'));
+    }
+
+    #[test]
+    fn tool_blocked_no_reason() {
+        let result = tool_blocked("Write", "");
+        assert!(result.contains('⊘'));
+        assert!(result.contains("Write"));
+    }
+
+    #[test]
+    fn tool_styling_has_leading_indent() {
+        assert!(tool_start("Bash").contains("  "));
+        assert!(tool_success("Bash", "ok").contains("  "));
+        assert!(tool_error("Bash", "fail").contains("  "));
+        assert!(tool_blocked("Bash", "no").contains("  "));
     }
 }

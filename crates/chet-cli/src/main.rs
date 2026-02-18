@@ -15,6 +15,7 @@ use chrono::Utc;
 use clap::Parser;
 use std::io::{self, Write};
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Parser)]
 #[command(name = "chet", version, about = "An AI-powered coding assistant")]
@@ -427,46 +428,105 @@ async fn run_agent(agent: &Agent, messages: &mut Vec<Message>) -> Result<Usage> 
     let stdout = io::stdout();
     let mut renderer = StreamingMarkdownRenderer::new(Box::new(stdout.lock()));
 
-    let usage = agent
-        .run(messages, |event| match event {
+    let cancel = CancellationToken::new();
+    let cancel_for_signal = cancel.clone();
+    let signal_task = tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        cancel_for_signal.cancel();
+    });
+
+    let spinner = chet_terminal::spinner::Spinner::new("Thinking...");
+    let mut first_text = true;
+
+    let result = agent
+        .run(messages, cancel, |event| match event {
             AgentEvent::TextDelta(text) => {
+                if first_text {
+                    spinner.set_active(false);
+                    chet_terminal::spinner::clear_line();
+                    first_text = false;
+                }
                 renderer.push(&text);
             }
             AgentEvent::ThinkingDelta(text) => {
+                if first_text {
+                    spinner.set_active(false);
+                    chet_terminal::spinner::clear_line();
+                    first_text = false;
+                }
                 let _ = write!(io::stderr(), "\x1b[2m{text}\x1b[0m");
                 let _ = io::stderr().flush();
             }
             AgentEvent::ToolStart { name, .. } => {
+                spinner.set_active(false);
+                chet_terminal::spinner::clear_line();
                 renderer.finish(); // flush any pending markdown
-                let _ = writeln!(io::stderr(), "  [tool: {name}]");
+                let _ = writeln!(io::stderr(), "{}", chet_terminal::style::tool_start(&name));
+                spinner.set_message(&format!("Running {name}..."));
+                spinner.set_active(true);
             }
             AgentEvent::ToolEnd {
                 name,
                 output,
                 is_error,
             } => {
+                spinner.set_active(false);
+                chet_terminal::spinner::clear_line();
                 if is_error {
-                    let _ = writeln!(io::stderr(), "  [tool {name} error: {output}]");
+                    let _ = writeln!(
+                        io::stderr(),
+                        "{}",
+                        chet_terminal::style::tool_error(&name, &output)
+                    );
                 } else {
-                    let _ = writeln!(io::stderr(), "  [tool {name} done: {output}]");
+                    let _ = writeln!(
+                        io::stderr(),
+                        "{}",
+                        chet_terminal::style::tool_success(&name, &output)
+                    );
                 }
+                spinner.set_message("Thinking...");
+                spinner.set_active(true);
+                first_text = true;
             }
             AgentEvent::ToolBlocked { name, reason } => {
-                let _ = writeln!(io::stderr(), "  [tool {name} blocked: {reason}]");
+                spinner.set_active(false);
+                chet_terminal::spinner::clear_line();
+                let _ = writeln!(
+                    io::stderr(),
+                    "{}",
+                    chet_terminal::style::tool_blocked(&name, &reason)
+                );
+            }
+            AgentEvent::Cancelled => {
+                spinner.set_active(false);
+                chet_terminal::spinner::clear_line();
+                renderer.finish();
+                let _ = writeln!(io::stderr(), "\nCancelled.");
             }
             AgentEvent::Usage(_) => {}
             AgentEvent::Done => {
+                spinner.set_active(false);
+                chet_terminal::spinner::clear_line();
                 renderer.finish();
                 let _ = writeln!(io::stdout());
             }
             AgentEvent::Error(e) => {
+                spinner.set_active(false);
+                chet_terminal::spinner::clear_line();
                 let _ = writeln!(io::stderr(), "Error: {e}");
             }
         })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+        .await;
 
-    Ok(usage)
+    signal_task.abort(); // clean up signal listener
+    spinner.stop().await;
+
+    match result {
+        Ok(usage) => Ok(usage),
+        Err(chet_types::ChetError::Cancelled) => Ok(Usage::default()),
+        Err(e) => Err(anyhow::anyhow!("{e}")),
+    }
 }
 
 fn user_message(text: &str) -> Message {

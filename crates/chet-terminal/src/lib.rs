@@ -8,6 +8,7 @@ mod history;
 mod keys;
 pub mod markdown;
 mod render;
+pub mod spinner;
 pub mod style;
 
 pub use completion::{Completer, SlashCommandCompleter};

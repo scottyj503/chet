@@ -12,6 +12,7 @@ use chet_types::{
 };
 use futures_util::StreamExt;
 use std::path::PathBuf;
+use tokio_util::sync::CancellationToken;
 
 /// Maximum number of consecutive tool-use loops before stopping.
 const MAX_TOOL_LOOPS: usize = 50;
@@ -37,6 +38,8 @@ pub enum AgentEvent {
     Done,
     /// A tool call was blocked by the permission system.
     ToolBlocked { name: String, reason: String },
+    /// The operation was cancelled (e.g. Ctrl+C).
+    Cancelled,
     /// An error occurred.
     Error(String),
 }
@@ -85,10 +88,12 @@ impl Agent {
     /// Run the agent loop: send messages, handle tool calls, repeat until done.
     ///
     /// The callback receives AgentEvents as they occur (for streaming UI).
+    /// The `cancel` token can be used to abort the loop (e.g. on Ctrl+C).
     /// Returns the final list of messages (including assistant + tool results).
     pub async fn run<F>(
         &self,
         messages: &mut Vec<Message>,
+        cancel: CancellationToken,
         mut on_event: F,
     ) -> Result<Usage, chet_types::ChetError>
     where
@@ -157,106 +162,115 @@ impl Agent {
             let mut in_thinking_block = false;
             let mut stop_reason = None;
 
-            while let Some(event) = stream.next().await {
-                match event {
-                    Ok(StreamEvent::MessageStart { message }) => {
-                        total_usage.add(&message.usage);
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => {
+                        on_event(AgentEvent::Cancelled);
+                        return Err(chet_types::ChetError::Cancelled);
                     }
-                    Ok(StreamEvent::ContentBlockStart {
-                        content_block: ContentBlock::Text { .. },
-                        ..
-                    }) => {
-                        current_text.clear();
-                    }
-                    Ok(StreamEvent::ContentBlockStart {
-                        content_block: ContentBlock::Thinking { .. },
-                        ..
-                    }) => {
-                        current_thinking.clear();
-                        current_signature.clear();
-                        in_thinking_block = true;
-                    }
-                    Ok(StreamEvent::ContentBlockStart {
-                        content_block: ContentBlock::ToolUse { id, name, .. },
-                        ..
-                    }) => {
-                        current_tool_id = id;
-                        current_tool_name = name;
-                        current_tool_json.clear();
-                        on_event(AgentEvent::ToolStart {
-                            name: current_tool_name.clone(),
-                            input: String::new(),
-                        });
-                    }
-                    Ok(StreamEvent::ContentBlockDelta { delta, .. }) => match delta {
-                        ContentDelta::TextDelta { text } => {
-                            on_event(AgentEvent::TextDelta(text.clone()));
-                            current_text.push_str(&text);
-                        }
-                        ContentDelta::InputJsonDelta { partial_json } => {
-                            current_tool_json.push_str(&partial_json);
-                        }
-                        ContentDelta::ThinkingDelta { thinking } => {
-                            on_event(AgentEvent::ThinkingDelta(thinking.clone()));
-                            current_thinking.push_str(&thinking);
-                        }
-                        ContentDelta::SignatureDelta { signature } => {
-                            current_signature.push_str(&signature);
-                        }
-                    },
-                    Ok(StreamEvent::ContentBlockStop { .. }) => {
-                        if in_thinking_block {
-                            if !current_thinking.is_empty() {
-                                content_blocks.push(ContentBlock::Thinking {
-                                    thinking: current_thinking.clone(),
-                                    signature: if current_signature.is_empty() {
-                                        None
-                                    } else {
-                                        Some(current_signature.clone())
-                                    },
+                    event = stream.next() => {
+                        match event {
+                            Some(Ok(StreamEvent::MessageStart { message })) => {
+                                total_usage.add(&message.usage);
+                            }
+                            Some(Ok(StreamEvent::ContentBlockStart {
+                                content_block: ContentBlock::Text { .. },
+                                ..
+                            })) => {
+                                current_text.clear();
+                            }
+                            Some(Ok(StreamEvent::ContentBlockStart {
+                                content_block: ContentBlock::Thinking { .. },
+                                ..
+                            })) => {
+                                current_thinking.clear();
+                                current_signature.clear();
+                                in_thinking_block = true;
+                            }
+                            Some(Ok(StreamEvent::ContentBlockStart {
+                                content_block: ContentBlock::ToolUse { id, name, .. },
+                                ..
+                            })) => {
+                                current_tool_id = id;
+                                current_tool_name = name;
+                                current_tool_json.clear();
+                                on_event(AgentEvent::ToolStart {
+                                    name: current_tool_name.clone(),
+                                    input: String::new(),
                                 });
                             }
-                            current_thinking.clear();
-                            current_signature.clear();
-                            in_thinking_block = false;
-                        } else if !current_text.is_empty() {
-                            content_blocks.push(ContentBlock::Text {
-                                text: current_text.clone(),
-                            });
-                            current_text.clear();
-                        } else if !current_tool_id.is_empty() {
-                            let input_value: serde_json::Value =
-                                serde_json::from_str(&current_tool_json).unwrap_or_default();
-                            content_blocks.push(ContentBlock::ToolUse {
-                                id: current_tool_id.clone(),
-                                name: current_tool_name.clone(),
-                                input: input_value,
-                            });
-                            current_tool_id.clear();
-                            current_tool_name.clear();
-                            current_tool_json.clear();
+                            Some(Ok(StreamEvent::ContentBlockDelta { delta, .. })) => match delta {
+                                ContentDelta::TextDelta { text } => {
+                                    on_event(AgentEvent::TextDelta(text.clone()));
+                                    current_text.push_str(&text);
+                                }
+                                ContentDelta::InputJsonDelta { partial_json } => {
+                                    current_tool_json.push_str(&partial_json);
+                                }
+                                ContentDelta::ThinkingDelta { thinking } => {
+                                    on_event(AgentEvent::ThinkingDelta(thinking.clone()));
+                                    current_thinking.push_str(&thinking);
+                                }
+                                ContentDelta::SignatureDelta { signature } => {
+                                    current_signature.push_str(&signature);
+                                }
+                            },
+                            Some(Ok(StreamEvent::ContentBlockStop { .. })) => {
+                                if in_thinking_block {
+                                    if !current_thinking.is_empty() {
+                                        content_blocks.push(ContentBlock::Thinking {
+                                            thinking: current_thinking.clone(),
+                                            signature: if current_signature.is_empty() {
+                                                None
+                                            } else {
+                                                Some(current_signature.clone())
+                                            },
+                                        });
+                                    }
+                                    current_thinking.clear();
+                                    current_signature.clear();
+                                    in_thinking_block = false;
+                                } else if !current_text.is_empty() {
+                                    content_blocks.push(ContentBlock::Text {
+                                        text: current_text.clone(),
+                                    });
+                                    current_text.clear();
+                                } else if !current_tool_id.is_empty() {
+                                    let input_value: serde_json::Value =
+                                        serde_json::from_str(&current_tool_json).unwrap_or_default();
+                                    content_blocks.push(ContentBlock::ToolUse {
+                                        id: current_tool_id.clone(),
+                                        name: current_tool_name.clone(),
+                                        input: input_value,
+                                    });
+                                    current_tool_id.clear();
+                                    current_tool_name.clear();
+                                    current_tool_json.clear();
+                                }
+                            }
+                            Some(Ok(StreamEvent::MessageDelta { delta, usage })) => {
+                                stop_reason = delta.stop_reason;
+                                if let Some(u) = usage {
+                                    total_usage.add(&u);
+                                }
+                            }
+                            Some(Ok(StreamEvent::Error { error })) => {
+                                on_event(AgentEvent::Error(format!(
+                                    "{}: {}",
+                                    error.error_type, error.message
+                                )));
+                                return Err(chet_types::ChetError::Api(chet_types::ApiError::Server {
+                                    status: 0,
+                                    message: error.message,
+                                }));
+                            }
+                            Some(Ok(_)) => {} // Ping, MessageStop
+                            Some(Err(e)) => {
+                                on_event(AgentEvent::Error(e.to_string()));
+                                return Err(chet_types::ChetError::Api(e));
+                            }
+                            None => break, // Stream ended
                         }
-                    }
-                    Ok(StreamEvent::MessageDelta { delta, usage }) => {
-                        stop_reason = delta.stop_reason;
-                        if let Some(u) = usage {
-                            total_usage.add(&u);
-                        }
-                    }
-                    Ok(StreamEvent::Error { error }) => {
-                        on_event(AgentEvent::Error(format!(
-                            "{}: {}",
-                            error.error_type, error.message
-                        )));
-                        return Err(chet_types::ChetError::Api(chet_types::ApiError::Server {
-                            status: 0,
-                            message: error.message,
-                        }));
-                    }
-                    Ok(_) => {} // Ping, MessageStop
-                    Err(e) => {
-                        on_event(AgentEvent::Error(e.to_string()));
-                        return Err(chet_types::ChetError::Api(e));
                     }
                 }
             }
@@ -380,13 +394,22 @@ impl Agent {
                     continue;
                 }
 
-                // 3. Execute the tool
-                let result = self
-                    .registry
-                    .execute(tool_name, tool_input.clone(), ctx.clone())
-                    .await;
+                // 3. Execute the tool (with cancellation support)
+                let tool_result = tokio::select! {
+                    _ = cancel.cancelled() => {
+                        on_event(AgentEvent::Cancelled);
+                        // Pop the assistant message — tool results haven't been pushed yet
+                        if let Some(last) = messages.last() {
+                            if last.role == Role::Assistant {
+                                messages.pop();
+                            }
+                        }
+                        return Err(chet_types::ChetError::Cancelled);
+                    }
+                    result = self.registry.execute(tool_name, tool_input.clone(), ctx.clone()) => result
+                };
 
-                let output = match result {
+                let output = match tool_result {
                     Ok(output) => output,
                     Err(e) => ToolOutput::error(e.to_string()),
                 };
@@ -462,5 +485,46 @@ fn truncate_for_display(s: &str, max_len: usize) -> String {
         s.to_string()
     } else {
         format!("{}...", &s[..max_len])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_event_cancelled_debug() {
+        let event = AgentEvent::Cancelled;
+        assert_eq!(format!("{event:?}"), "Cancelled");
+    }
+
+    #[test]
+    fn chet_error_cancelled_display() {
+        let err = chet_types::ChetError::Cancelled;
+        assert_eq!(err.to_string(), "Operation cancelled");
+    }
+
+    #[test]
+    fn cancellation_token_starts_not_cancelled() {
+        let token = CancellationToken::new();
+        assert!(!token.is_cancelled());
+    }
+
+    #[test]
+    fn cancellation_token_can_cancel() {
+        let token = CancellationToken::new();
+        token.cancel();
+        assert!(token.is_cancelled());
+    }
+
+    #[test]
+    fn truncate_short_string() {
+        assert_eq!(truncate_for_display("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_long_string() {
+        let result = truncate_for_display("hello world", 5);
+        assert_eq!(result, "hello...");
     }
 }
