@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Live API Testing COMPLETE — Ready for Phase 5 (Terminal UI)
+## Current Phase: Phase 5a COMPLETE — Ready for Phase 5b (Streaming Markdown)
 
 ## Phase Status
 
@@ -12,7 +12,7 @@
 | 3 | Permission System | **COMPLETE** | Rules, hooks, engine, CLI prompt |
 | 4 | Session Management | **COMPLETE** | Session persistence, context tracking, compaction |
 | 4.5 | Prompt Caching + Extended Thinking | **COMPLETE** | Cache control on system/tools, --thinking-budget flag, thinking block capture fix |
-| 5a | Custom Line Editor | Not started | crossterm raw mode, arrow keys, history, tab completion |
+| 5a | Custom Line Editor | **COMPLETE** | crossterm raw mode, arrow keys, history, tab completion |
 | 5b | Streaming Markdown Renderer | Not started | pulldown-cmark, syntect, line-level buffer + inline lookahead |
 | 5c | Tool Output Polish | Not started | Spinners, colors, Ctrl+C handling |
 | 6 | Multi-Provider API | Not started | |
@@ -41,10 +41,11 @@
 - Phase 4: chet-session (Session/SessionStore/ContextTracker/compact), JSON persistence in ~/.chet/sessions/, --resume flag, /context /compact /sessions /resume commands, auto-save after each turn, context line display
 - Phase 4.5: Prompt caching (CacheControl on system prompt + last tool definition, always on), extended thinking (--thinking-budget flag, ThinkingConfig, thinking block capture bug fix)
 - Live API testing: Validated all phases against real Anthropic API, fixed 2 bugs, added integration test suite
+- Phase 5a: Custom line editor (chet-terminal crate) — crossterm raw mode, LineBuffer with cursor, History with file persistence, SlashCommandCompleter, TerminalRenderer, panic hook for raw mode safety
 
 ## Test Summary
 
-- 87 unit tests passing (10 SSE/stream, 4 config, 19 tools, 24 permissions, 23 session, 7 message types)
+- 139 unit tests passing (10 SSE/stream, 4 config, 19 tools, 24 permissions, 23 session, 7 message types, 52 terminal)
 - 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working

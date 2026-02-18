@@ -8,11 +8,12 @@ use chet_config::{ChetConfig, CliOverrides};
 use chet_core::{Agent, AgentEvent};
 use chet_permissions::PermissionEngine;
 use chet_session::{ContextTracker, Session, SessionStore, compact};
+use chet_terminal::{LineEditor, ReadLineResult, SlashCommandCompleter};
 use chet_tools::ToolRegistry;
 use chet_types::{ContentBlock, Message, Role, Usage};
 use chrono::Utc;
 use clap::Parser;
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
 use std::sync::Arc;
 
 #[derive(Parser)]
@@ -53,6 +54,13 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Safety: ensure raw mode is disabled if we panic
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = crossterm::terminal::disable_raw_mode();
+        default_panic(info);
+    }));
+
     let cli = Cli::parse();
 
     // Set up logging
@@ -162,7 +170,19 @@ async fn repl(
         None => Session::new(config.model.clone(), cwd.display().to_string()),
     };
 
-    let stdin = io::stdin();
+    let mut editor = LineEditor::new(config.config_dir.join("history"));
+    editor.set_completer(Box::new(SlashCommandCompleter::new(vec![
+        "/quit",
+        "/exit",
+        "/clear",
+        "/cost",
+        "/help",
+        "/model",
+        "/context",
+        "/compact",
+        "/sessions",
+        "/resume",
+    ])));
 
     let thinking_info = match config.thinking_budget {
         Some(budget) => format!(", thinking: {budget} tokens"),
@@ -178,15 +198,14 @@ async fn repl(
     eprintln!("Type your message. Press Ctrl+D to exit.\n");
 
     loop {
-        eprint!("> ");
-        io::stderr().flush()?;
-
-        let mut input = String::new();
-        let bytes_read = stdin.lock().read_line(&mut input)?;
-        if bytes_read == 0 {
-            eprintln!();
-            break;
-        }
+        let input = match editor.read_line("> ").await? {
+            ReadLineResult::Line(line) => line,
+            ReadLineResult::Eof => {
+                eprintln!();
+                break;
+            }
+            ReadLineResult::Interrupted => continue,
+        };
 
         let input = input.trim();
         if input.is_empty() {
@@ -232,6 +251,8 @@ async fn repl(
 
         println!();
     }
+
+    editor.save_history()?;
 
     // Final save
     session.updated_at = Utc::now();
