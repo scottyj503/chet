@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 8 COMPLETE — Ready for Phase 9 (Plugin System)
+## Current Phase: Phase 8 COMPLETE — Ready for Phase 9 (LSP Client)
 
 ## Phase Status
 
@@ -20,10 +20,8 @@
 | 7 | Retry & Backoff | **COMPLETE** | Exponential backoff with jitter for 429/529/5xx/network errors, Retry-After header, config |
 | 7.5 | Multi-Provider API | **COMPLETE** | Provider trait in chet-types, AnthropicProvider wraps ApiClient, Agent uses Arc<dyn Provider>, chet-core decoupled from chet-api |
 | 8 | MCP Integration | **COMPLETE** | JSON-RPC 2.0 over stdio, multi-server, tool namespacing, /mcp command |
-| 9 | Plugin System | Not started | Hot-reload: plugins available immediately without restart |
-| 10 | LSP Client | Not started | |
-| 11 | Bash Sandboxing | Not started | |
-| 12 | Polish & Distribution | Not started | Bounded memory for Bash tool output, platform-correct temp dirs |
+| 9 | LSP Client | Not started | Opt-in (default off), heavyweight for CI; --lsp flag or [lsp] config to enable; filter gitignored files from results |
+| 10 | Polish & Distribution | Not started | Bounded memory for Bash tool output, platform-correct temp dirs, optional bash sandboxing as defense-in-depth, release stream buffers in long sessions, defer startup hooks for faster TTI, fix O(n²) message accumulation in progress updates, preserve plan mode + session titles through compaction, handle CWD deletion in bash tool, parallel file ops fail independently, no "0 tokens" spinner before first token, preserve Unicode in Edit tool, validate permission match descriptions against actual rules |
 
 ## Completed Tasks
 
@@ -101,3 +99,4 @@ Bugs found and fixed:
 | 2026-02-18 | MCP: stdio transport only | Most servers are local processes; HTTP transport can come later |
 | 2026-02-18 | MCP: eager startup, no reconnect | Start all at session init; if a server dies, its tools are dead for the session |
 | 2026-02-18 | MCP: mcp__server__tool namespacing | Prevents collisions between built-in tools and MCP tools from different servers |
+| 2026-02-18 | Drop Plugin System phase | MCP covers external tool extensibility; plugins deferred until concrete need arises |
