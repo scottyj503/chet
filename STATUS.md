@@ -111,6 +111,7 @@ Bugs found and fixed:
 - **ConfigChange hook event**: Fire hook when config files change during a session. Enables hot-reload without restart.
 - **File-not-found path suggestions**: When model drops the repo prefix from a path, suggest the corrected path. Saves wasted agent turns.
 - **Enhanced permission restriction reasons**: Show why a path or working directory is blocked, not just that it is.
+- **Status line**: Persistent terminal status bar showing model, tokens, cost, session ID, mode (plan/normal), active agent name (e.g., `subagent: code-quality-reviewer`), active MCP server+tool (e.g., `mcp: jira → search_issues`), LSP status. Structured JSON output for CI/CD log parsing.
 
 ## Decisions Log
 
