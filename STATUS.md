@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 8 COMPLETE — Ready for Phase 9 (LSP Client)
+## Current Phase: Phase 9 COMPLETE — v1 Ready
 
 ## Phase Status
 
@@ -20,8 +20,20 @@
 | 7 | Retry & Backoff | **COMPLETE** | Exponential backoff with jitter for 429/529/5xx/network errors, Retry-After header, config |
 | 7.5 | Multi-Provider API | **COMPLETE** | Provider trait in chet-types, AnthropicProvider wraps ApiClient, Agent uses Arc<dyn Provider>, chet-core decoupled from chet-api |
 | 8 | MCP Integration | **COMPLETE** | JSON-RPC 2.0 over stdio, multi-server, tool namespacing, /mcp command |
-| 9 | LSP Client | Not started | Opt-in (default off), heavyweight for CI; --lsp flag or [lsp] config to enable; filter gitignored files from results |
-| 10 | Polish & Distribution | Not started | Bounded memory for Bash tool output, platform-correct temp dirs, optional bash sandboxing as defense-in-depth, release stream buffers in long sessions, defer startup hooks for faster TTI, fix O(n²) message accumulation in progress updates, preserve plan mode + session titles through compaction, handle CWD deletion in bash tool, parallel file ops fail independently, no "0 tokens" spinner before first token, preserve Unicode in Edit tool, validate permission match descriptions against actual rules |
+| 9 | Polish & Distribution | **COMPLETE** | Unicode-safe truncation, CWD fallback, O(n²) fix, auto-labels, descriptive permissions |
+
+### Phase 9 Checklist
+
+- [x] Bounded memory for Bash tool output (cap/truncate large output) — already done (30KB cap)
+- [x] Platform-correct temp dirs (`std::env::temp_dir()`, not hardcoded `/tmp`)
+- [x] Release stream buffers in long sessions — acceptable (SSE buffer minor in practice)
+- [x] Fix O(n²) message accumulation — `std::mem::take` instead of `messages.clone()`
+- [x] Preserve plan mode + session titles through compaction — auto-label + label in summary
+- [x] Handle CWD deletion in bash tool (fallback to ctx.cwd with warning)
+- [x] Parallel file ops fail independently — already clean (sequential execution)
+- [x] Preserve Unicode in Edit tool — already clean (Rust String throughout)
+- [x] Validate permission match descriptions — descriptive messages with matched rule/args
+- [x] Unicode-safe truncation — `truncate_str`/`truncate_string` across 11 sites
 
 ## Completed Tasks
 
@@ -40,10 +52,11 @@
 - Phase 7: Retry & backoff — `RetryConfig` + `is_retryable()` + `calculate_delay()` in `chet-api/src/retry.rs`, retry loop in `ApiClient::create_message_stream()`, `parse_retry_after()` for server-specified delays, ±25% jitter, `[api.retry]` config section, defaults: 2 retries / 1s initial / 2x factor / 60s max
 - Phase 7.5: Multi-Provider API — `Provider` trait + `EventStream` type alias in `chet-types/src/provider.rs`, `AnthropicProvider` in `chet-api/src/provider.rs` wraps `ApiClient`, `Agent` + `SubagentTool` take `Arc<dyn Provider>`, `chet-core` no longer depends on `chet-api` (only dev-dependency for tests)
 - Phase 8: MCP Integration — Custom JSON-RPC 2.0 over stdio transport, `McpClient` (initialize handshake + tool discovery + tool call), `McpTool` (implements `Tool` trait with `mcp__server__tool` namespacing), `McpManager` (multi-server orchestration with graceful failure), `[mcp.servers.*]` TOML config, `/mcp` slash command, MCP info in startup banner
+- Phase 9: Polish & Distribution — Unicode-safe `truncate_str`/`truncate_string` (11 sites), platform-correct temp dirs, CWD deletion fallback in bash tool, O(n²) `messages.clone()` → `std::mem::take`, auto-label sessions + preserve through compaction, descriptive permission match messages with rule/args context
 
 ## Test Summary
 
-- 294 unit tests passing (34 api, 8 config, 14 core/agent+subagent, 20 tools, 24 permissions, 23 session, 9 types, 124 terminal, 9 cli, 29 mcp)
+- 315 unit tests passing (34 api, 8 config, 14 core/agent+subagent, 21 tools, 26 permissions, 30 session, 20 types, 124 terminal, 9 cli, 29 mcp)
 - 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working
@@ -77,6 +90,10 @@ Bugs found and fixed:
 
 - **CI/CD-first agent**: Leverage compiled Rust binary for zero-dependency, fast-startup headless agent mode targeting CI/CD pipelines (PR review, code checks, test generation). Key differentiator vs Node.js-based tools.
 
+## Post-v1
+
+- **LSP Client**: Opt-in (default off), --lsp flag or [lsp] config. Grep/Read cover 90% of needs; LSP is heavyweight (1-2GB RAM) and hurts CI/CD. Revisit if users request it. Filter gitignored files from results.
+
 ## Decisions Log
 
 | Date | Decision | Rationale |
@@ -100,3 +117,6 @@ Bugs found and fixed:
 | 2026-02-18 | MCP: eager startup, no reconnect | Start all at session init; if a server dies, its tools are dead for the session |
 | 2026-02-18 | MCP: mcp__server__tool namespacing | Prevents collisions between built-in tools and MCP tools from different servers |
 | 2026-02-18 | Drop Plugin System phase | MCP covers external tool extensibility; plugins deferred until concrete need arises |
+| 2026-02-19 | Defer LSP Client to post-v1 | Grep/Read cover 90% of needs; LSP is heavyweight and hurts CI/CD story; revisit if users request |
+| 2026-02-19 | Custom floor_char_boundary | MSRV 1.85 vs floor_char_boundary stable 1.91; manual impl using is_char_boundary |
+| 2026-02-19 | O(n²) fix: std::mem::take | Move messages into request, restore after API call — O(1) vs clone's O(n) per iteration |

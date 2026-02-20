@@ -21,8 +21,11 @@ pub struct CompactionResult {
 
 /// Compact a conversation by extracting key facts and preserving recent messages.
 ///
+/// An optional `label` (e.g. the session label) is prepended to the summary so
+/// it survives compaction.
+///
 /// Returns `None` if the conversation is too short to compact.
-pub fn compact(messages: &[Message]) -> Option<CompactionResult> {
+pub fn compact(messages: &[Message], label: Option<&str>) -> Option<CompactionResult> {
     if messages.len() < MIN_MESSAGES_FOR_COMPACTION {
         return None;
     }
@@ -41,7 +44,7 @@ pub fn compact(messages: &[Message]) -> Option<CompactionResult> {
 
     // Extract key facts from the old messages
     let facts = extract_key_facts(old_messages);
-    let summary_msg = build_summary_message(&facts);
+    let summary_msg = build_summary_message(&facts, label);
 
     let mut new_messages = vec![summary_msg];
     new_messages.extend_from_slice(recent_messages);
@@ -114,7 +117,7 @@ fn extract_key_facts(messages: &[Message]) -> Vec<String> {
                     if name == "Bash" {
                         if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
                             let short = if cmd.len() > 60 {
-                                format!("{}...", &cmd[..57])
+                                format!("{}...", chet_types::truncate_str(cmd, 57))
                             } else {
                                 cmd.to_string()
                             };
@@ -130,7 +133,7 @@ fn extract_key_facts(messages: &[Message]) -> Vec<String> {
                     for c in content {
                         if let chet_types::ToolResultContent::Text { text } = c {
                             let short = if text.len() > 100 {
-                                format!("{}...", &text[..97])
+                                format!("{}...", chet_types::truncate_str(text, 97))
                             } else {
                                 text.clone()
                             };
@@ -195,7 +198,7 @@ fn messages_to_markdown(messages: &[Message]) -> String {
                             if text.len() > 2000 {
                                 md.push_str(&format!(
                                     "```\n{}...\n(truncated)\n```\n\n",
-                                    &text[..2000]
+                                    chet_types::truncate_str(text, 2000)
                                 ));
                             } else {
                                 md.push_str(&format!("```\n{text}\n```\n\n"));
@@ -206,7 +209,7 @@ fn messages_to_markdown(messages: &[Message]) -> String {
                 ContentBlock::Thinking { thinking, .. } => {
                     md.push_str(&format!(
                         "*Thinking: {}*\n\n",
-                        &thinking[..thinking.len().min(200)]
+                        chet_types::truncate_str(thinking, 200)
                     ));
                 }
                 ContentBlock::Image { .. } => {
@@ -220,8 +223,14 @@ fn messages_to_markdown(messages: &[Message]) -> String {
 }
 
 /// Build a summary user message from extracted facts.
-fn build_summary_message(facts: &[String]) -> Message {
-    let mut text = String::from(
+fn build_summary_message(facts: &[String], label: Option<&str>) -> Message {
+    let mut text = String::new();
+
+    if let Some(label) = label {
+        text.push_str(&format!("[Session: {label}]\n\n"));
+    }
+
+    text.push_str(
         "[This conversation was compacted. Key facts from the earlier conversation:]\n\n",
     );
 
@@ -268,13 +277,13 @@ mod tests {
             text_msg(Role::User, "Hello"),
             text_msg(Role::Assistant, "Hi"),
         ];
-        assert!(compact(&msgs).is_none());
+        assert!(compact(&msgs, None).is_none());
     }
 
     #[test]
     fn preserves_recent_messages() {
         let msgs = long_conversation();
-        let result = compact(&msgs).unwrap();
+        let result = compact(&msgs, None).unwrap();
         // Should have summary + recent messages
         assert!(result.new_messages.len() < msgs.len());
         // Last message should be the same as original
@@ -290,7 +299,7 @@ mod tests {
     #[test]
     fn generates_archive() {
         let msgs = long_conversation();
-        let result = compact(&msgs).unwrap();
+        let result = compact(&msgs, None).unwrap();
         assert!(result.archive_markdown.contains("# Conversation Archive"));
         assert!(result.archive_markdown.contains("Question 0"));
     }
@@ -322,7 +331,7 @@ mod tests {
                 }],
             },
         );
-        let result = compact(&msgs).unwrap();
+        let result = compact(&msgs, None).unwrap();
         let summary_text = match &result.new_messages[0].content[0] {
             ContentBlock::Text { text } => text.clone(),
             _ => panic!("expected text"),
@@ -346,7 +355,7 @@ mod tests {
                 }],
             },
         );
-        let result = compact(&msgs).unwrap();
+        let result = compact(&msgs, None).unwrap();
         let summary_text = match &result.new_messages[0].content[0] {
             ContentBlock::Text { text } => text.clone(),
             _ => panic!("expected text"),
@@ -357,19 +366,41 @@ mod tests {
     #[test]
     fn summary_is_user_role() {
         let msgs = long_conversation();
-        let result = compact(&msgs).unwrap();
+        let result = compact(&msgs, None).unwrap();
         assert_eq!(result.new_messages[0].role, Role::User);
     }
 
     #[test]
     fn messages_removed_count() {
         let msgs = long_conversation();
-        let result = compact(&msgs).unwrap();
+        let result = compact(&msgs, None).unwrap();
         assert!(result.messages_removed > 0);
         // new_messages = 1 (summary) + preserved recent
         assert_eq!(
             result.new_messages.len(),
             1 + (msgs.len() - result.messages_removed)
         );
+    }
+
+    #[test]
+    fn compact_with_label_includes_session_label() {
+        let msgs = long_conversation();
+        let result = compact(&msgs, Some("Fix auth bug")).unwrap();
+        let summary_text = match &result.new_messages[0].content[0] {
+            ContentBlock::Text { text } => text.clone(),
+            _ => panic!("expected text"),
+        };
+        assert!(summary_text.contains("[Session: Fix auth bug]"));
+    }
+
+    #[test]
+    fn compact_without_label_omits_session_line() {
+        let msgs = long_conversation();
+        let result = compact(&msgs, None).unwrap();
+        let summary_text = match &result.new_messages[0].content[0] {
+            ContentBlock::Text { text } => text.clone(),
+            _ => panic!("expected text"),
+        };
+        assert!(!summary_text.contains("[Session:"));
     }
 }

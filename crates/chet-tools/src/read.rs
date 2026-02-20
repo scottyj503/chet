@@ -88,7 +88,7 @@ impl Tool for ReadTool {
                 let line_num = offset + i + 1;
                 // Truncate lines longer than 2000 chars
                 let display_line = if line.len() > 2000 {
-                    &line[..2000]
+                    chet_types::truncate_str(line, 2000)
                 } else {
                     line
                 };
@@ -117,11 +117,10 @@ impl Tool for ReadTool {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::path::PathBuf;
 
     fn test_ctx() -> ToolContext {
         ToolContext {
-            cwd: PathBuf::from("/tmp"),
+            cwd: std::env::temp_dir(),
             env: HashMap::new(),
             sandboxed: false,
         }

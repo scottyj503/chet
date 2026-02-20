@@ -11,6 +11,6 @@ pub mod types;
 
 pub use engine::PermissionEngine;
 pub use hooks::run_hooks;
-pub use matcher::RuleMatcher;
+pub use matcher::{EvaluateResult, RuleMatcher};
 pub use prompt::PromptHandler;
 pub use types::*;

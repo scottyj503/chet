@@ -13,10 +13,11 @@ impl PromptHandler for TerminalPromptHandler {
         &self,
         tool_name: &str,
         tool_input: &serde_json::Value,
-        _description: &str,
+        description: &str,
     ) -> Pin<Box<dyn Future<Output = PromptResponse> + Send + '_>> {
         let tool_name = tool_name.to_string();
         let input_summary = summarize_input(tool_input);
+        let description = description.to_string();
 
         Box::pin(async move {
             // Use spawn_blocking since we read from stdin
@@ -26,6 +27,9 @@ impl PromptHandler for TerminalPromptHandler {
 
                 let _ = writeln!(err);
                 let _ = writeln!(err, "  Permission required: {tool_name}");
+                if !description.is_empty() {
+                    let _ = writeln!(err, "  {description}");
+                }
                 if !input_summary.is_empty() {
                     let _ = writeln!(err, "  {input_summary}");
                 }
@@ -60,7 +64,7 @@ fn summarize_input(input: &serde_json::Value) -> String {
                     let val = match v {
                         serde_json::Value::String(s) => {
                             if s.len() > 60 {
-                                format!("{}...", &s[..60])
+                                format!("{}...", chet_types::truncate_str(s, 60))
                             } else {
                                 s.clone()
                             }
@@ -68,7 +72,7 @@ fn summarize_input(input: &serde_json::Value) -> String {
                         other => {
                             let s = other.to_string();
                             if s.len() > 60 {
-                                format!("{}...", &s[..60])
+                                format!("{}...", chet_types::truncate_str(&s, 60))
                             } else {
                                 s
                             }

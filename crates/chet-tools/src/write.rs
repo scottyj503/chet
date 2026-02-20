@@ -82,11 +82,10 @@ impl Tool for WriteTool {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::path::PathBuf;
 
     fn test_ctx() -> ToolContext {
         ToolContext {
-            cwd: PathBuf::from("/tmp"),
+            cwd: std::env::temp_dir(),
             env: HashMap::new(),
             sandboxed: false,
         }

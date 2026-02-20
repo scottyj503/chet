@@ -67,23 +67,29 @@ impl PermissionEngine {
 
         // Check session rules first (they can only add permits)
         let session_rules = self.session_rules.lock().unwrap();
-        if let Some(level) = RuleMatcher::evaluate(&session_rules, tool_name, tool_input) {
-            if level == PermissionLevel::Permit {
+        if let Some(result) = RuleMatcher::evaluate(&session_rules, tool_name, tool_input) {
+            if result.level == PermissionLevel::Permit {
                 return PermissionDecision::Permit;
             }
         }
         drop(session_rules);
 
         // Check static rules
-        if let Some(level) = RuleMatcher::evaluate(&self.rules, tool_name, tool_input) {
-            return match level {
+        if let Some(result) = RuleMatcher::evaluate(&self.rules, tool_name, tool_input) {
+            return match result.level {
                 PermissionLevel::Permit => PermissionDecision::Permit,
                 PermissionLevel::Block => PermissionDecision::Block {
-                    reason: format!("Tool '{tool_name}' blocked by permission rule"),
+                    reason: format!(
+                        "Tool '{tool_name}' blocked by permission ({})",
+                        result.description
+                    ),
                 },
                 PermissionLevel::Prompt => PermissionDecision::Prompt {
                     tool: tool_name.to_string(),
-                    description: format!("Tool '{tool_name}' requires permission"),
+                    description: format!(
+                        "Tool '{tool_name}' requires permission ({})",
+                        result.description
+                    ),
                 },
             };
         }

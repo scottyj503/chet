@@ -144,10 +144,10 @@ impl Agent {
                 (None, None)
             };
 
-            let request = CreateMessageRequest {
+            let mut request = CreateMessageRequest {
                 model: self.model.clone(),
                 max_tokens: self.max_tokens,
-                messages: messages.clone(),
+                messages: std::mem::take(messages),
                 system,
                 tools,
                 stop_sequences: None,
@@ -156,11 +156,12 @@ impl Agent {
                 stream: true,
             };
 
-            let mut stream = self
-                .provider
-                .create_message_stream(&request)
-                .await
-                .map_err(chet_types::ChetError::Api)?;
+            let stream_result = self.provider.create_message_stream(&request).await;
+
+            // Restore messages immediately — O(1) instead of clone's O(n)
+            *messages = std::mem::take(&mut request.messages);
+
+            let mut stream = stream_result.map_err(chet_types::ChetError::Api)?;
 
             // Collect the full assistant response
             let mut content_blocks: Vec<ContentBlock> = Vec::new();
@@ -511,7 +512,7 @@ fn truncate_for_display(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_len])
+        format!("{}...", chet_types::truncate_str(s, max_len))
     }
 }
 

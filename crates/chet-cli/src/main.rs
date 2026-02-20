@@ -299,6 +299,7 @@ async fn repl(
             Ok(usage) => {
                 session.total_usage.add(&usage);
                 session.updated_at = Utc::now();
+                session.auto_label();
 
                 // In plan mode, save plan to file and prompt for approval
                 if plan_mode {
@@ -445,7 +446,7 @@ async fn handle_slash_command(
 }
 
 async fn handle_compact(session: &mut Session, store: &SessionStore) {
-    match compact(&session.messages) {
+    match compact(&session.messages, session.metadata.label.as_deref()) {
         Some(result) => {
             session.compaction_count += 1;
             let archive_path = match store

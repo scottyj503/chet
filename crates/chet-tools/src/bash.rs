@@ -87,8 +87,19 @@ impl Tool for BashTool {
 
             // Get the persistent cwd or fall back to context cwd
             let cwd = {
-                let lock = self.cwd.lock().unwrap();
-                lock.clone().unwrap_or_else(|| ctx.cwd.clone())
+                let mut lock = self.cwd.lock().unwrap();
+                let candidate = lock.clone().unwrap_or_else(|| ctx.cwd.clone());
+                if candidate.is_dir() {
+                    candidate
+                } else {
+                    *lock = None;
+                    eprintln!(
+                        "Warning: CWD {} no longer exists, falling back to {}",
+                        candidate.display(),
+                        ctx.cwd.display()
+                    );
+                    ctx.cwd.clone()
+                }
             };
 
             let result = tokio::time::timeout(
@@ -144,7 +155,7 @@ impl Tool for BashTool {
 
             // Truncate if needed
             if result_text.len() > MAX_OUTPUT_BYTES {
-                result_text.truncate(MAX_OUTPUT_BYTES);
+                chet_types::truncate_string(&mut result_text, MAX_OUTPUT_BYTES);
                 result_text.push_str("\n\n(output truncated)");
             }
 
@@ -236,6 +247,31 @@ mod tests {
             .await;
 
         assert!(matches!(result, Err(ToolError::Timeout { .. })));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_bash_cwd_deleted_fallback() {
+        let tool = BashTool::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let doomed = tmp.path().join("doomed");
+        std::fs::create_dir(&doomed).unwrap();
+
+        // Set the tool's persistent CWD to the doomed dir
+        *tool.cwd.lock().unwrap() = Some(doomed.clone());
+
+        // Delete the directory
+        std::fs::remove_dir(&doomed).unwrap();
+
+        // Next command should fall back to ctx.cwd
+        let output = tool
+            .execute(serde_json::json!({"command": "pwd"}), test_ctx())
+            .await
+            .unwrap();
+
+        assert!(!output.is_error);
+        // Persistent CWD should have been reset
+        assert!(tool.cwd.lock().unwrap().is_none());
     }
 
     #[test]

@@ -2,6 +2,13 @@
 
 use crate::types::{PermissionLevel, PermissionRule};
 
+/// Result of evaluating rules: the winning level + a human-readable description.
+#[derive(Debug, Clone)]
+pub struct EvaluateResult {
+    pub level: PermissionLevel,
+    pub description: String,
+}
+
 /// Evaluates whether a `PermissionRule` matches a given tool call.
 pub struct RuleMatcher;
 
@@ -30,12 +37,12 @@ impl RuleMatcher {
     /// Find the highest-priority matching rule from a list of rules.
     ///
     /// Priority: block > permit > prompt.
-    /// Returns the permission level of the winning rule, or None if no rules match.
+    /// Returns the permission level + description of the winning rule, or None if no rules match.
     pub fn evaluate(
         rules: &[PermissionRule],
         tool_name: &str,
         tool_input: &serde_json::Value,
-    ) -> Option<PermissionLevel> {
+    ) -> Option<EvaluateResult> {
         let matching: Vec<&PermissionRule> = rules
             .iter()
             .filter(|r| Self::matches(r, tool_name, tool_input))
@@ -45,14 +52,27 @@ impl RuleMatcher {
             return None;
         }
 
-        // block > permit > prompt
-        if matching.iter().any(|r| r.level == PermissionLevel::Block) {
-            return Some(PermissionLevel::Block);
+        // block > permit > prompt — find the winning rule for its description
+        let winner = if let Some(r) = matching.iter().find(|r| r.level == PermissionLevel::Block) {
+            r
+        } else if let Some(r) = matching.iter().find(|r| r.level == PermissionLevel::Permit) {
+            r
+        } else {
+            matching.first().unwrap()
+        };
+
+        Some(EvaluateResult {
+            level: winner.level.clone(),
+            description: Self::describe_rule(winner),
+        })
+    }
+
+    /// Human-readable description of a matched rule.
+    fn describe_rule(rule: &PermissionRule) -> String {
+        match &rule.args {
+            Some(args) => format!("rule: {} [{}] -> {}", rule.tool, args, rule.level.as_str()),
+            None => format!("rule: {} -> {}", rule.tool, rule.level.as_str()),
         }
-        if matching.iter().any(|r| r.level == PermissionLevel::Permit) {
-            return Some(PermissionLevel::Permit);
-        }
-        Some(PermissionLevel::Prompt)
     }
 
     fn matches_tool_name(pattern: &str, tool_name: &str) -> bool {
@@ -166,7 +186,9 @@ mod tests {
             rule("Bash", Some("command:rm *"), PermissionLevel::Block),
         ];
         let result = RuleMatcher::evaluate(&rules, "Bash", &json!({"command": "rm -rf /"}));
-        assert_eq!(result, Some(PermissionLevel::Block));
+        let result = result.unwrap();
+        assert_eq!(result.level, PermissionLevel::Block);
+        assert!(result.description.contains("command:rm *"));
     }
 
     #[test]
@@ -176,14 +198,32 @@ mod tests {
             rule("Bash", Some("command:git *"), PermissionLevel::Permit),
         ];
         let result = RuleMatcher::evaluate(&rules, "Bash", &json!({"command": "git status"}));
-        assert_eq!(result, Some(PermissionLevel::Permit));
+        let result = result.unwrap();
+        assert_eq!(result.level, PermissionLevel::Permit);
     }
 
     #[test]
     fn test_evaluate_no_match() {
         let rules = vec![rule("Write", None, PermissionLevel::Block)];
         let result = RuleMatcher::evaluate(&rules, "Read", &json!({}));
-        assert_eq!(result, None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_evaluate_description_includes_args() {
+        let rules = vec![rule("Bash", Some("command:git *"), PermissionLevel::Permit)];
+        let result = RuleMatcher::evaluate(&rules, "Bash", &json!({"command": "git push"}));
+        let result = result.unwrap();
+        assert!(result.description.contains("command:git *"));
+        assert!(result.description.contains("permit"));
+    }
+
+    #[test]
+    fn test_evaluate_description_no_args() {
+        let rules = vec![rule("Bash", None, PermissionLevel::Prompt)];
+        let result = RuleMatcher::evaluate(&rules, "Bash", &json!({}));
+        let result = result.unwrap();
+        assert_eq!(result.description, "rule: Bash -> prompt");
     }
 
     #[test]

@@ -11,6 +11,16 @@ pub enum PermissionLevel {
     Prompt,
 }
 
+impl PermissionLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PermissionLevel::Permit => "permit",
+            PermissionLevel::Block => "block",
+            PermissionLevel::Prompt => "prompt",
+        }
+    }
+}
+
 /// A single permission rule matching a tool + optional argument pattern.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionRule {
