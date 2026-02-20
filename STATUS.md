@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 9 COMPLETE — v1 Ready
+## Current Phase: Phase 10 COMPLETE — v1 shipped
 
 ## Phase Status
 
@@ -21,6 +21,7 @@
 | 7.5 | Multi-Provider API | **COMPLETE** | Provider trait in chet-types, AnthropicProvider wraps ApiClient, Agent uses Arc<dyn Provider>, chet-core decoupled from chet-api |
 | 8 | MCP Integration | **COMPLETE** | JSON-RPC 2.0 over stdio, multi-server, tool namespacing, /mcp command |
 | 9 | Polish & Distribution | **COMPLETE** | Unicode-safe truncation, CWD fallback, O(n²) fix, auto-labels, descriptive permissions |
+| 10 | Distribution | **COMPLETE** | Static binaries, Docker, install script, GitHub Action, crates.io |
 
 ### Phase 9 Checklist
 
@@ -34,6 +35,17 @@
 - [x] Preserve Unicode in Edit tool — already clean (Rust String throughout)
 - [x] Validate permission match descriptions — descriptive messages with matched rule/args
 - [x] Unicode-safe truncation — `truncate_str`/`truncate_string` across 11 sites
+
+### Phase 10 Checklist
+
+- [x] Static binary cross-compilation (Linux x86_64/aarch64 musl, macOS x86_64/aarch64)
+- [x] GitHub Releases CI (tag → build → attach binaries + sha256sums)
+- [x] Install script (`curl -sSf ... | sh`)
+- [x] Docker image (Alpine-based, ~15MB)
+- [x] `cargo install --git` (package renamed, crates.io metadata ready)
+- [x] GitHub Action (`uses: scottyj503/chet/.github/actions/setup-chet@v1`)
+- [x] Pure-Rust dependencies (regex-fancy, rustls — no C cross-compilation issues)
+- [x] Library crates marked `publish = false`
 
 ## Completed Tasks
 
@@ -53,6 +65,7 @@
 - Phase 7.5: Multi-Provider API — `Provider` trait + `EventStream` type alias in `chet-types/src/provider.rs`, `AnthropicProvider` in `chet-api/src/provider.rs` wraps `ApiClient`, `Agent` + `SubagentTool` take `Arc<dyn Provider>`, `chet-core` no longer depends on `chet-api` (only dev-dependency for tests)
 - Phase 8: MCP Integration — Custom JSON-RPC 2.0 over stdio transport, `McpClient` (initialize handshake + tool discovery + tool call), `McpTool` (implements `Tool` trait with `mcp__server__tool` namespacing), `McpManager` (multi-server orchestration with graceful failure), `[mcp.servers.*]` TOML config, `/mcp` slash command, MCP info in startup banner
 - Phase 9: Polish & Distribution — Unicode-safe `truncate_str`/`truncate_string` (11 sites), platform-correct temp dirs, CWD deletion fallback in bash tool, O(n²) `messages.clone()` → `std::mem::take`, auto-label sessions + preserve through compaction, descriptive permission match messages with rule/args context
+- Phase 10: Distribution — Pure-Rust deps (regex-fancy, rustls), package rename chet-cli→chet with crates.io metadata, release CI (4-target matrix + GitHub Release + Docker push), install script, Dockerfile (Alpine), GitHub Action (setup-chet), library crates `publish = false`
 
 ## Test Summary
 
@@ -93,6 +106,11 @@ Bugs found and fixed:
 ## Post-v1
 
 - **LSP Client**: Opt-in (default off), --lsp flag or [lsp] config. Grep/Read cover 90% of needs; LSP is heavyweight (1-2GB RAM) and hurts CI/CD. Revisit if users request it. Filter gitignored files from results.
+- **Worktree isolation**: `--worktree` flag + subagent `isolation: "worktree"` for parallel agents in isolated git worktrees. Key for CI/CD (multiple PRs reviewed simultaneously without conflicts).
+- **Non-interactive mode optimization**: Skip unnecessary API calls in headless/pipe mode (`-p`). Faster CI/CD execution.
+- **ConfigChange hook event**: Fire hook when config files change during a session. Enables hot-reload without restart.
+- **File-not-found path suggestions**: When model drops the repo prefix from a path, suggest the corrected path. Saves wasted agent turns.
+- **Enhanced permission restriction reasons**: Show why a path or working directory is blocked, not just that it is.
 
 ## Decisions Log
 

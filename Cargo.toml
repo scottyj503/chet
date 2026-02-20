@@ -22,6 +22,7 @@ edition = "2024"
 authors = ["Scott Johnson"]
 license = "MIT"
 rust-version = "1.85"
+repository = "https://github.com/scottyj503/chet"
 
 [workspace.dependencies]
 # Shared types & errors
@@ -36,7 +37,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 # HTTP & networking
-reqwest = { version = "0.12", features = ["rustls-tls", "stream", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
 
 # Time & IDs
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -44,7 +45,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Terminal
 crossterm = "0.28"
-syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig"] }
+syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
 
 # Random (jitter for retry backoff)
 rand = "0.9"
@@ -54,18 +55,18 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Internal crates
-chet-types = { path = "crates/chet-types" }
-chet-config = { path = "crates/chet-config" }
-chet-api = { path = "crates/chet-api" }
-chet-core = { path = "crates/chet-core" }
-chet-tools = { path = "crates/chet-tools" }
-chet-permissions = { path = "crates/chet-permissions" }
-chet-terminal = { path = "crates/chet-terminal" }
-chet-session = { path = "crates/chet-session" }
-chet-mcp = { path = "crates/chet-mcp" }
-chet-plugins = { path = "crates/chet-plugins" }
-chet-lsp = { path = "crates/chet-lsp" }
-chet-sandbox = { path = "crates/chet-sandbox" }
+chet-types = { path = "crates/chet-types", version = "0.1.0" }
+chet-config = { path = "crates/chet-config", version = "0.1.0" }
+chet-api = { path = "crates/chet-api", version = "0.1.0" }
+chet-core = { path = "crates/chet-core", version = "0.1.0" }
+chet-tools = { path = "crates/chet-tools", version = "0.1.0" }
+chet-permissions = { path = "crates/chet-permissions", version = "0.1.0" }
+chet-terminal = { path = "crates/chet-terminal", version = "0.1.0" }
+chet-session = { path = "crates/chet-session", version = "0.1.0" }
+chet-mcp = { path = "crates/chet-mcp", version = "0.1.0" }
+chet-plugins = { path = "crates/chet-plugins", version = "0.1.0" }
+chet-lsp = { path = "crates/chet-lsp", version = "0.1.0" }
+chet-sandbox = { path = "crates/chet-sandbox", version = "0.1.0" }
 
 [profile.release]
 lto = true

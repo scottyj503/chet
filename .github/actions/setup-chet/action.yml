@@ -1,0 +1,78 @@
+name: "Setup Chet"
+description: "Install the Chet AI coding assistant CLI"
+
+inputs:
+  version:
+    description: "Chet version to install (default: latest)"
+    required: false
+    default: "latest"
+  api-key:
+    description: "Anthropic API key"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Detect platform
+      id: platform
+      shell: bash
+      run: |
+        OS="$(uname -s)"
+        ARCH="$(uname -m)"
+
+        case "$OS" in
+          Linux)  OS_TARGET="unknown-linux-musl" ;;
+          Darwin) OS_TARGET="apple-darwin" ;;
+          *)      echo "::error::Unsupported OS: $OS"; exit 1 ;;
+        esac
+
+        case "$ARCH" in
+          x86_64|amd64)  ARCH_TARGET="x86_64" ;;
+          aarch64|arm64) ARCH_TARGET="aarch64" ;;
+          *)             echo "::error::Unsupported arch: $ARCH"; exit 1 ;;
+        esac
+
+        echo "target=${ARCH_TARGET}-${OS_TARGET}" >> "$GITHUB_OUTPUT"
+
+    - name: Resolve version
+      id: version
+      shell: bash
+      run: |
+        if [ "${{ inputs.version }}" = "latest" ]; then
+          VERSION="$(curl -sSf https://api.github.com/repos/scottyj503/chet/releases/latest \
+            | grep '"tag_name"' \
+            | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+        else
+          VERSION="${{ inputs.version }}"
+        fi
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+    - name: Cache chet binary
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.chet/bin
+        key: chet-${{ steps.version.outputs.version }}-${{ steps.platform.outputs.target }}
+
+    - name: Download chet
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        TARGET="${{ steps.platform.outputs.target }}"
+        URL="https://github.com/scottyj503/chet/releases/download/$VERSION/chet-$TARGET.tar.gz"
+        mkdir -p ~/.chet/bin
+        curl -sSfL "$URL" | tar xz -C ~/.chet/bin
+
+    - name: Add to PATH
+      shell: bash
+      run: echo "$HOME/.chet/bin" >> "$GITHUB_PATH"
+
+    - name: Set API key
+      if: inputs.api-key != ''
+      shell: bash
+      run: echo "ANTHROPIC_API_KEY=${{ inputs.api-key }}" >> "$GITHUB_ENV"
+
+    - name: Verify installation
+      shell: bash
+      run: chet --version

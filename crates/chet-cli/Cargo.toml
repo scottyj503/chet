@@ -1,11 +1,16 @@
 [package]
-name = "chet-cli"
-description = "CLI entry point and REPL for Chet"
+name = "chet"
+description = "An AI-powered coding assistant for the terminal"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+homepage = "https://github.com/scottyj503/chet"
+keywords = ["ai", "cli", "coding-assistant", "anthropic", "claude"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "../../README.md"
 
 [[bin]]
 name = "chet"

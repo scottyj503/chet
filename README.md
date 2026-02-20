@@ -25,12 +25,46 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 - **TOML config** — `~/.chet/config.toml` for persistent settings
 - **Single binary** — no runtime dependencies
 
+## Installation
+
+### Via cargo
+
+```bash
+cargo install --git https://github.com/scottyj503/chet
+```
+
+### Install script (Linux / macOS)
+
+```bash
+curl -sSf https://raw.githubusercontent.com/scottyj503/chet/main/scripts/install.sh | sh
+```
+
+### Docker
+
+```bash
+docker run --rm -e ANTHROPIC_API_KEY ghcr.io/scottyj503/chet -p "explain this code"
+```
+
+### GitHub Action
+
+```yaml
+- uses: scottyj503/chet/.github/actions/setup-chet@v1
+  with:
+    api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+- run: chet -p "review this PR"
+```
+
+### From source
+
+```bash
+git clone https://github.com/scottyj503/chet.git
+cd chet
+cargo install --path crates/chet-cli
+```
+
 ## Quick Start
 
 ```bash
-# Build from source
-cargo install --path crates/chet-cli
-
 # Set your API key
 export ANTHROPIC_API_KEY=sk-ant-...
 
@@ -132,7 +166,7 @@ Chet is a Cargo workspace with focused crates:
 
 | Crate | Purpose |
 |-------|---------|
-| `chet-cli` | Binary: CLI entry, REPL, arg parsing |
+| `chet` | Binary: CLI entry, REPL, arg parsing |
 | `chet-core` | Agent loop, conversation orchestration (provider-agnostic) |
 | `chet-api` | Anthropic API client, SSE streaming, `AnthropicProvider` |
 | `chet-tools` | Tool trait + built-in tools (Read, Write, Edit, Bash, Glob, Grep); Subagent tool lives in chet-core |
