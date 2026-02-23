@@ -38,6 +38,7 @@ pub struct StreamingMarkdownRenderer {
     state: RenderState,
     highlighter: CodeHighlighter,
     term_width: u16,
+    plain: bool,
 }
 
 impl StreamingMarkdownRenderer {
@@ -50,6 +51,21 @@ impl StreamingMarkdownRenderer {
             state: RenderState::new(),
             highlighter: CodeHighlighter::new(),
             term_width: width,
+            plain: false,
+        }
+    }
+
+    /// Create a plain-mode renderer that passes through raw markdown without ANSI styling.
+    ///
+    /// Used when stdout is not a TTY (e.g., piped output in CI/CD).
+    pub fn new_plain(writer: Box<dyn Write>) -> Self {
+        Self {
+            writer,
+            buffer: String::new(),
+            state: RenderState::new(),
+            highlighter: CodeHighlighter::new(),
+            term_width: 80,
+            plain: true,
         }
     }
 
@@ -62,6 +78,7 @@ impl StreamingMarkdownRenderer {
             state: RenderState::new(),
             highlighter: CodeHighlighter::new(),
             term_width: width,
+            plain: false,
         }
     }
 
@@ -81,6 +98,11 @@ impl StreamingMarkdownRenderer {
     pub fn finish(&mut self) {
         if !self.buffer.is_empty() {
             let remaining = std::mem::take(&mut self.buffer);
+            if self.plain {
+                let _ = write!(self.writer, "{remaining}");
+                let _ = self.writer.flush();
+                return;
+            }
             self.render_line(&remaining);
         }
 
@@ -98,6 +120,13 @@ impl StreamingMarkdownRenderer {
 
     /// Render a single complete line.
     fn render_line(&mut self, line: &str) {
+        // Plain mode: pass through raw markdown without any styling
+        if self.plain {
+            let _ = writeln!(self.writer, "{line}");
+            let _ = self.writer.flush();
+            return;
+        }
+
         let trimmed = line.trim();
 
         // Check for code fence toggle
@@ -1125,5 +1154,49 @@ mod tests {
         assert!(out.contains("header"));
         assert!(out.contains("normal text"));
         assert!(!out.contains('┌'));
+    }
+
+    // --- Plain mode tests ---
+
+    fn test_plain_renderer() -> (
+        StreamingMarkdownRenderer,
+        std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    ) {
+        let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let writer = TestWriter(buf.clone());
+        let renderer = StreamingMarkdownRenderer::new_plain(Box::new(writer));
+        (renderer, buf)
+    }
+
+    #[test]
+    fn plain_mode_no_ansi_in_headings() {
+        let (mut r, buf) = test_plain_renderer();
+        r.push("# Title\n");
+        r.push("**bold text**\n");
+        let out = get_output(&buf);
+        assert!(out.contains("# Title"));
+        assert!(out.contains("**bold text**"));
+        assert!(!out.contains('\x1b'));
+    }
+
+    #[test]
+    fn plain_mode_no_ansi_in_code_blocks() {
+        let (mut r, buf) = test_plain_renderer();
+        r.push("```rust\nlet x = 42;\n```\n");
+        let out = get_output(&buf);
+        assert!(out.contains("```rust"));
+        assert!(out.contains("let x = 42;"));
+        assert!(out.contains("```"));
+        assert!(!out.contains('\x1b'));
+    }
+
+    #[test]
+    fn plain_mode_finish_flushes_without_ansi() {
+        let (mut r, buf) = test_plain_renderer();
+        r.push("no newline");
+        r.finish();
+        let out = get_output(&buf);
+        assert!(out.contains("no newline"));
+        assert!(!out.contains('\x1b'));
     }
 }

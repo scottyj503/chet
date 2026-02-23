@@ -23,7 +23,10 @@ pub struct Spinner {
 
 impl Spinner {
     /// Create and start a new spinner with the given initial message.
-    pub fn new(message: &str) -> Self {
+    ///
+    /// When `silent` is true, the background task skips all writes to stderr.
+    /// `set_active`/`set_message` still work but nothing is rendered.
+    pub fn new(message: &str, silent: bool) -> Self {
         let active = Arc::new(AtomicBool::new(true));
         let msg = Arc::new(Mutex::new(message.to_string()));
 
@@ -33,7 +36,7 @@ impl Spinner {
         let handle = tokio::spawn(async move {
             let mut frame_idx = 0;
             loop {
-                if active_clone.load(Ordering::Relaxed) {
+                if !silent && active_clone.load(Ordering::Relaxed) {
                     let msg_text = msg_clone.lock().unwrap().clone();
                     let frame = FRAMES[frame_idx % FRAMES.len()];
                     let _ = write!(std::io::stderr(), "\r  {frame} {msg_text}");
@@ -62,18 +65,22 @@ impl Spinner {
     }
 
     /// Stop the spinner, abort the background task, and clear the line.
-    pub async fn stop(self) {
+    pub async fn stop(self, is_tty: bool) {
         self.active.store(false, Ordering::Relaxed);
         self.handle.abort();
         let _ = self.handle.await;
-        clear_line();
+        clear_line(is_tty);
     }
 }
 
 /// Clear the current spinner line on stderr.
 ///
+/// When `is_tty` is false, this is a no-op.
 /// Safe to call from sync context.
-pub fn clear_line() {
+pub fn clear_line(is_tty: bool) {
+    if !is_tty {
+        return;
+    }
     let _ = write!(std::io::stderr(), "\r\x1b[2K");
     let _ = std::io::stderr().flush();
 }
@@ -98,7 +105,7 @@ mod tests {
     #[test]
     fn clear_line_compiles_in_sync() {
         // Just verify it can be called from a non-async context
-        clear_line();
+        clear_line(true);
     }
 
     #[test]
@@ -108,18 +115,33 @@ mod tests {
 
     #[tokio::test]
     async fn create_and_stop_no_panic() {
-        let spinner = Spinner::new("Testing...");
+        let spinner = Spinner::new("Testing...", false);
         spinner.set_active(false);
-        spinner.stop().await;
+        spinner.stop(true).await;
     }
 
     #[tokio::test]
     async fn set_active_and_message_no_panic() {
-        let spinner = Spinner::new("init");
+        let spinner = Spinner::new("init", false);
         spinner.set_active(false);
         spinner.set_message("changed");
         spinner.set_active(true);
         spinner.set_active(false);
-        spinner.stop().await;
+        spinner.stop(true).await;
+    }
+
+    #[tokio::test]
+    async fn silent_spinner_no_panic() {
+        let spinner = Spinner::new("silent", true);
+        spinner.set_active(true);
+        spinner.set_message("still silent");
+        // Even when active, nothing should be written
+        spinner.stop(false).await;
+    }
+
+    #[test]
+    fn clear_line_noop_when_not_tty() {
+        // Should be a no-op, no panic
+        clear_line(false);
     }
 }

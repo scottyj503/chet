@@ -106,12 +106,16 @@ Bugs found and fixed:
 ## Post-v1
 
 - **LSP Client**: Opt-in (default off), --lsp flag or [lsp] config. Grep/Read cover 90% of needs; LSP is heavyweight (1-2GB RAM) and hurts CI/CD. Revisit if users request it. Filter gitignored files from results.
-- **Worktree isolation**: `--worktree` flag + subagent `isolation: "worktree"` for parallel agents in isolated git worktrees. Key for CI/CD (multiple PRs reviewed simultaneously without conflicts).
-- **Non-interactive mode optimization**: Skip unnecessary API calls in headless/pipe mode (`-p`). Faster CI/CD execution.
+- **Worktree isolation**: `--worktree` flag + subagent `isolation: "worktree"` for parallel agents in isolated git worktrees. Key for CI/CD (multiple PRs reviewed simultaneously without conflicts). `WorktreeCreate`/`WorktreeRemove` hook events for custom setup/teardown.
+- **Non-interactive mode optimization**: Skip unnecessary API calls in headless/pipe mode (`-p`). Defer UI/terminal setup when no TTY. Faster CI/CD execution.
 - **ConfigChange hook event**: Fire hook when config files change during a session. Enables hot-reload without restart.
 - **File-not-found path suggestions**: When model drops the repo prefix from a path, suggest the corrected path. Saves wasted agent turns.
 - **Enhanced permission restriction reasons**: Show why a path or working directory is blocked, not just that it is.
 - **Status line**: Persistent terminal status bar showing model, tokens, cost, session ID, mode (plan/normal), active agent name (e.g., `subagent: code-quality-reviewer`), active MCP server+tool (e.g., `mcp: jira → search_issues`), LSP status. Structured JSON output for CI/CD log parsing.
+- **Memory management**: Clear internal caches after compaction, cap file history snapshots, free completed task output. Prevent unbounded growth in long sessions.
+- **`chet agents` CLI command**: List all configured agents/subagent definitions for discoverability.
+- **MCP reconnect resilience**: Handle `/mcp reconnect` with non-existent server name gracefully instead of freezing.
+- **Session flush on disconnect**: Flush session data before hooks/analytics on SSH disconnect or connection drop. Critical for remote/CI usage.
 
 ## Decisions Log
 

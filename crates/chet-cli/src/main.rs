@@ -56,12 +56,18 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Safety: ensure raw mode is disabled if we panic
-    let default_panic = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = crossterm::terminal::disable_raw_mode();
-        default_panic(info);
-    }));
+    use std::io::IsTerminal;
+    let stdout_is_tty = std::io::stdout().is_terminal();
+    let stderr_is_tty = std::io::stderr().is_terminal();
+
+    // Safety: ensure raw mode is disabled if we panic (only relevant when TTY attached)
+    if stdout_is_tty || stderr_is_tty {
+        let default_panic = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = crossterm::terminal::disable_raw_mode();
+            default_panic(info);
+        }));
+    }
 
     let cli = Cli::parse();
 
@@ -105,7 +111,7 @@ async fn main() -> Result<()> {
         });
         let agent = create_agent(Arc::clone(&provider), engine, &config, &cwd, &mcp_manager);
         let mut messages = vec![user_message(&prompt)];
-        let usage = run_agent(&agent, &mut messages).await?;
+        let usage = run_agent(&agent, &mut messages, stdout_is_tty, stderr_is_tty).await?;
         print_usage(&usage);
         if let Some(manager) = mcp_manager {
             manager.shutdown().await;
@@ -129,7 +135,16 @@ async fn main() -> Result<()> {
         )
     });
 
-    repl(provider, engine, &config, &cwd, cli.resume, mcp_manager).await
+    repl(
+        provider,
+        engine,
+        &config,
+        &cwd,
+        cli.resume,
+        mcp_manager,
+        stderr_is_tty,
+    )
+    .await
 }
 
 fn create_agent(
@@ -178,6 +193,7 @@ async fn repl(
     cwd: &std::path::Path,
     resume_id: Option<String>,
     mcp_manager: Option<McpManager>,
+    stderr_is_tty: bool,
 ) -> Result<()> {
     let mut agent = create_agent(provider, permissions, config, cwd, &mcp_manager);
     let store = SessionStore::new(config.config_dir.clone())
@@ -267,7 +283,7 @@ async fn repl(
                 plan_mode = true;
                 agent.set_read_only_mode(true);
                 agent.set_system_prompt(plan_system_prompt(cwd));
-                eprintln!("{}", chet_terminal::style::plan_mode_banner());
+                eprintln!("{}", chet_terminal::style::plan_mode_banner(stderr_is_tty));
             }
             continue;
         }
@@ -295,7 +311,7 @@ async fn repl(
 
         session.messages.push(user_message(input));
 
-        match run_agent(&agent, &mut session.messages).await {
+        match run_agent(&agent, &mut session.messages, true, stderr_is_tty).await {
             Ok(usage) => {
                 session.total_usage.add(&usage);
                 session.updated_at = Utc::now();
@@ -537,9 +553,18 @@ async fn handle_resume(session: &mut Session, store: &SessionStore, prefix: &str
 }
 
 /// Run the agent loop and stream styled markdown output to stdout.
-async fn run_agent(agent: &Agent, messages: &mut Vec<Message>) -> Result<Usage> {
+async fn run_agent(
+    agent: &Agent,
+    messages: &mut Vec<Message>,
+    stdout_is_tty: bool,
+    stderr_is_tty: bool,
+) -> Result<Usage> {
     let stdout = io::stdout();
-    let mut renderer = StreamingMarkdownRenderer::new(Box::new(stdout.lock()));
+    let mut renderer = if stdout_is_tty {
+        StreamingMarkdownRenderer::new(Box::new(stdout.lock()))
+    } else {
+        StreamingMarkdownRenderer::new_plain(Box::new(stdout.lock()))
+    };
 
     let cancel = CancellationToken::new();
     let cancel_for_signal = cancel.clone();
@@ -548,7 +573,7 @@ async fn run_agent(agent: &Agent, messages: &mut Vec<Message>) -> Result<Usage> 
         cancel_for_signal.cancel();
     });
 
-    let spinner = chet_terminal::spinner::Spinner::new("Thinking...");
+    let spinner = chet_terminal::spinner::Spinner::new("Thinking...", !stderr_is_tty);
     let mut first_text = true;
 
     let result = agent
@@ -556,7 +581,7 @@ async fn run_agent(agent: &Agent, messages: &mut Vec<Message>) -> Result<Usage> 
             AgentEvent::TextDelta(text) => {
                 if first_text {
                     spinner.set_active(false);
-                    chet_terminal::spinner::clear_line();
+                    chet_terminal::spinner::clear_line(stderr_is_tty);
                     first_text = false;
                 }
                 renderer.push(&text);
@@ -564,17 +589,25 @@ async fn run_agent(agent: &Agent, messages: &mut Vec<Message>) -> Result<Usage> 
             AgentEvent::ThinkingDelta(text) => {
                 if first_text {
                     spinner.set_active(false);
-                    chet_terminal::spinner::clear_line();
+                    chet_terminal::spinner::clear_line(stderr_is_tty);
                     first_text = false;
                 }
-                let _ = write!(io::stderr(), "\x1b[2m{text}\x1b[0m");
+                if stderr_is_tty {
+                    let _ = write!(io::stderr(), "\x1b[2m{text}\x1b[0m");
+                } else {
+                    let _ = write!(io::stderr(), "{text}");
+                }
                 let _ = io::stderr().flush();
             }
             AgentEvent::ToolStart { name, .. } => {
                 spinner.set_active(false);
-                chet_terminal::spinner::clear_line();
+                chet_terminal::spinner::clear_line(stderr_is_tty);
                 renderer.finish(); // flush any pending markdown
-                let _ = writeln!(io::stderr(), "{}", chet_terminal::style::tool_start(&name));
+                let _ = writeln!(
+                    io::stderr(),
+                    "{}",
+                    chet_terminal::style::tool_start(&name, stderr_is_tty)
+                );
                 spinner.set_message(&format!("Running {name}..."));
                 spinner.set_active(true);
             }
@@ -584,18 +617,18 @@ async fn run_agent(agent: &Agent, messages: &mut Vec<Message>) -> Result<Usage> 
                 is_error,
             } => {
                 spinner.set_active(false);
-                chet_terminal::spinner::clear_line();
+                chet_terminal::spinner::clear_line(stderr_is_tty);
                 if is_error {
                     let _ = writeln!(
                         io::stderr(),
                         "{}",
-                        chet_terminal::style::tool_error(&name, &output)
+                        chet_terminal::style::tool_error(&name, &output, stderr_is_tty)
                     );
                 } else {
                     let _ = writeln!(
                         io::stderr(),
                         "{}",
-                        chet_terminal::style::tool_success(&name, &output)
+                        chet_terminal::style::tool_success(&name, &output, stderr_is_tty)
                     );
                 }
                 spinner.set_message("Thinking...");
@@ -604,36 +637,36 @@ async fn run_agent(agent: &Agent, messages: &mut Vec<Message>) -> Result<Usage> 
             }
             AgentEvent::ToolBlocked { name, reason } => {
                 spinner.set_active(false);
-                chet_terminal::spinner::clear_line();
+                chet_terminal::spinner::clear_line(stderr_is_tty);
                 let _ = writeln!(
                     io::stderr(),
                     "{}",
-                    chet_terminal::style::tool_blocked(&name, &reason)
+                    chet_terminal::style::tool_blocked(&name, &reason, stderr_is_tty)
                 );
             }
             AgentEvent::Cancelled => {
                 spinner.set_active(false);
-                chet_terminal::spinner::clear_line();
+                chet_terminal::spinner::clear_line(stderr_is_tty);
                 renderer.finish();
                 let _ = writeln!(io::stderr(), "\nCancelled.");
             }
             AgentEvent::Usage(_) => {}
             AgentEvent::Done => {
                 spinner.set_active(false);
-                chet_terminal::spinner::clear_line();
+                chet_terminal::spinner::clear_line(stderr_is_tty);
                 renderer.finish();
                 let _ = writeln!(io::stdout());
             }
             AgentEvent::Error(e) => {
                 spinner.set_active(false);
-                chet_terminal::spinner::clear_line();
+                chet_terminal::spinner::clear_line(stderr_is_tty);
                 let _ = writeln!(io::stderr(), "Error: {e}");
             }
         })
         .await;
 
     signal_task.abort(); // clean up signal listener
-    spinner.stop().await;
+    spinner.stop(stderr_is_tty).await;
 
     match result {
         Ok(usage) => Ok(usage),

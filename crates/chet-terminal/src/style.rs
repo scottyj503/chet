@@ -151,7 +151,11 @@ pub fn list_number(n: u32, depth: u8) -> String {
 // ---------------------------------------------------------------------------
 
 /// Format a tool start event: "  ⚡ name" (cyan icon, bold name).
-pub fn tool_start(name: &str) -> String {
+/// When `color` is false, returns plain text without ANSI escapes.
+pub fn tool_start(name: &str, color: bool) -> String {
+    if !color {
+        return format!("  > {name}");
+    }
     format!(
         "  {}⚡{} {}{}{}",
         SetForegroundColor(Color::Cyan),
@@ -163,7 +167,14 @@ pub fn tool_start(name: &str) -> String {
 }
 
 /// Format a tool success event: "  ✓ name output" (green icon).
-pub fn tool_success(name: &str, output: &str) -> String {
+/// When `color` is false, returns plain text without ANSI escapes.
+pub fn tool_success(name: &str, output: &str, color: bool) -> String {
+    if !color {
+        if output.is_empty() {
+            return format!("  OK {name}");
+        }
+        return format!("  OK {name} {output}");
+    }
     let mut s = format!(
         "  {}✓{} {}{}{}",
         SetForegroundColor(Color::Green),
@@ -185,7 +196,14 @@ pub fn tool_success(name: &str, output: &str) -> String {
 }
 
 /// Format a tool error event: "  ✗ name output" (red icon).
-pub fn tool_error(name: &str, output: &str) -> String {
+/// When `color` is false, returns plain text without ANSI escapes.
+pub fn tool_error(name: &str, output: &str, color: bool) -> String {
+    if !color {
+        if output.is_empty() {
+            return format!("  ERR {name}");
+        }
+        return format!("  ERR {name} {output}");
+    }
     let mut s = format!(
         "  {}✗{} {}{}{}",
         SetForegroundColor(Color::Red),
@@ -207,7 +225,14 @@ pub fn tool_error(name: &str, output: &str) -> String {
 }
 
 /// Format a tool blocked event: "  ⊘ name reason" (yellow icon).
-pub fn tool_blocked(name: &str, reason: &str) -> String {
+/// When `color` is false, returns plain text without ANSI escapes.
+pub fn tool_blocked(name: &str, reason: &str, color: bool) -> String {
+    if !color {
+        if reason.is_empty() {
+            return format!("  BLOCKED {name}");
+        }
+        return format!("  BLOCKED {name} {reason}");
+    }
     let mut s = format!(
         "  {}⊘{} {}{}{}",
         SetForegroundColor(Color::Yellow),
@@ -229,7 +254,11 @@ pub fn tool_blocked(name: &str, reason: &str) -> String {
 }
 
 /// Plan mode banner: "PLAN MODE — read-only exploration, no file modifications"
-pub fn plan_mode_banner() -> String {
+/// When `color` is false, returns plain text without ANSI escapes.
+pub fn plan_mode_banner(color: bool) -> String {
+    if !color {
+        return "PLAN MODE — read-only exploration, no file modifications".to_string();
+    }
     format!(
         "{}{}PLAN MODE{} {} — read-only exploration, no file modifications{}",
         SetForegroundColor(Color::Magenta),
@@ -322,7 +351,7 @@ mod tests {
 
     #[test]
     fn tool_start_contains_icon_and_name() {
-        let result = tool_start("Bash");
+        let result = tool_start("Bash", true);
         assert!(result.contains('⚡'));
         assert!(result.contains("Bash"));
         assert!(result.contains('\x1b'));
@@ -330,7 +359,7 @@ mod tests {
 
     #[test]
     fn tool_success_contains_icon_name_output() {
-        let result = tool_success("Read", "42 lines");
+        let result = tool_success("Read", "42 lines", true);
         assert!(result.contains('✓'));
         assert!(result.contains("Read"));
         assert!(result.contains("42 lines"));
@@ -339,14 +368,14 @@ mod tests {
 
     #[test]
     fn tool_success_no_output() {
-        let result = tool_success("Write", "");
+        let result = tool_success("Write", "", true);
         assert!(result.contains('✓'));
         assert!(result.contains("Write"));
     }
 
     #[test]
     fn tool_error_contains_icon_name_output() {
-        let result = tool_error("Bash", "exit code 1");
+        let result = tool_error("Bash", "exit code 1", true);
         assert!(result.contains('✗'));
         assert!(result.contains("Bash"));
         assert!(result.contains("exit code 1"));
@@ -355,14 +384,14 @@ mod tests {
 
     #[test]
     fn tool_error_no_output() {
-        let result = tool_error("Bash", "");
+        let result = tool_error("Bash", "", true);
         assert!(result.contains('✗'));
         assert!(result.contains("Bash"));
     }
 
     #[test]
     fn tool_blocked_contains_icon_name_reason() {
-        let result = tool_blocked("Write", "not permitted");
+        let result = tool_blocked("Write", "not permitted", true);
         assert!(result.contains('⊘'));
         assert!(result.contains("Write"));
         assert!(result.contains("not permitted"));
@@ -371,14 +400,14 @@ mod tests {
 
     #[test]
     fn tool_blocked_no_reason() {
-        let result = tool_blocked("Write", "");
+        let result = tool_blocked("Write", "", true);
         assert!(result.contains('⊘'));
         assert!(result.contains("Write"));
     }
 
     #[test]
     fn plan_mode_banner_contains_text_and_ansi() {
-        let banner = plan_mode_banner();
+        let banner = plan_mode_banner(true);
         assert!(banner.contains("PLAN MODE"));
         assert!(banner.contains("read-only"));
         assert!(banner.contains('\x1b'));
@@ -386,9 +415,54 @@ mod tests {
 
     #[test]
     fn tool_styling_has_leading_indent() {
-        assert!(tool_start("Bash").contains("  "));
-        assert!(tool_success("Bash", "ok").contains("  "));
-        assert!(tool_error("Bash", "fail").contains("  "));
-        assert!(tool_blocked("Bash", "no").contains("  "));
+        assert!(tool_start("Bash", true).contains("  "));
+        assert!(tool_success("Bash", "ok", true).contains("  "));
+        assert!(tool_error("Bash", "fail", true).contains("  "));
+        assert!(tool_blocked("Bash", "no", true).contains("  "));
+    }
+
+    // --- Plain (no-color) tool styling tests ---
+
+    #[test]
+    fn tool_start_plain_no_ansi() {
+        let result = tool_start("Bash", false);
+        assert_eq!(result, "  > Bash");
+        assert!(!result.contains('\x1b'));
+    }
+
+    #[test]
+    fn tool_success_plain_no_ansi() {
+        let result = tool_success("Read", "42 lines", false);
+        assert_eq!(result, "  OK Read 42 lines");
+        assert!(!result.contains('\x1b'));
+    }
+
+    #[test]
+    fn tool_success_plain_no_output() {
+        let result = tool_success("Write", "", false);
+        assert_eq!(result, "  OK Write");
+        assert!(!result.contains('\x1b'));
+    }
+
+    #[test]
+    fn tool_error_plain_no_ansi() {
+        let result = tool_error("Bash", "exit code 1", false);
+        assert_eq!(result, "  ERR Bash exit code 1");
+        assert!(!result.contains('\x1b'));
+    }
+
+    #[test]
+    fn tool_blocked_plain_no_ansi() {
+        let result = tool_blocked("Write", "not permitted", false);
+        assert_eq!(result, "  BLOCKED Write not permitted");
+        assert!(!result.contains('\x1b'));
+    }
+
+    #[test]
+    fn plan_mode_banner_plain_no_ansi() {
+        let banner = plan_mode_banner(false);
+        assert!(banner.contains("PLAN MODE"));
+        assert!(banner.contains("read-only"));
+        assert!(!banner.contains('\x1b'));
     }
 }
