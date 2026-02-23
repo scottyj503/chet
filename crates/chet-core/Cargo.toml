@@ -24,3 +24,4 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 chet-api = { workspace = true }
+futures-util = "0.3"

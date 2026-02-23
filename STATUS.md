@@ -72,6 +72,7 @@
 - 333 unit tests passing (34 api, 8 config, 16 core/agent+subagent+worktree, 21 tools, 31 permissions, 30 session, 20 types, 135 terminal, 9 cli, 29 mcp)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
+- 4 cancellation integration tests (MockProvider + SlowTool, run with `cargo test -p chet-core --test cancellation_integration -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working
 
@@ -98,7 +99,7 @@ Bugs found and fixed:
 
 ## Future Test Items
 
-- **Cancellation integration test**: End-to-end test of `Agent::run()` with a `CancellationToken` cancelled mid-stream and mid-tool. Needs a mock HTTP server (e.g. `wiremock`) to stream SSE slowly. Can share infrastructure with Phase 6 rate-limit/retry tests.
+- ~~**Cancellation integration test**~~: **DONE** — 4 `#[ignore]` tests in `crates/chet-core/tests/cancellation_integration.rs` (MockProvider + SlowTool). Covers mid-stream, mid-tool, after-completion, and pre-cancelled token. Run with `cargo test -p chet-core --test cancellation_integration -- --ignored`.
 
 ## Product Direction
 
