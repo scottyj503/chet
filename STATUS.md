@@ -100,6 +100,14 @@ Bugs found and fixed:
 ## Future Test Items
 
 - ~~**Cancellation integration test**~~: **DONE** — 4 `#[ignore]` tests in `crates/chet-core/tests/cancellation_integration.rs` (MockProvider + SlowTool). Covers mid-stream, mid-tool, after-completion, and pre-cancelled token. Run with `cargo test -p chet-core --test cancellation_integration -- --ignored`.
+- **Subagent end-to-end**: Parent agent spawns child via MockProvider, child runs a tool, parent gets text result. Validates SubagentTool → Agent → tool → result pipeline. Reuse MockProvider infrastructure.
+- **Retry/backoff**: MockProvider returns retryable errors (429, 529), verify retry with delay then success. Validates retry loop is transparent to agent.
+- **Multi-tool-use turn**: MockProvider returns 2+ tool_use blocks in one response, verify all execute and results sent back. Common real-world pattern with no test coverage.
+- **Plan mode tool blocking**: Agent in read-only mode, MockProvider requests Write tool. Verify ToolBlocked event fires. Validates safety net.
+- **Non-interactive pipe mode**: Agent with TTY=false, verify no ANSI escapes, silent spinner, plain markdown output.
+- **Session round-trip**: Save session after agent run, load back, verify messages intact. Filesystem integration test.
+- **MCP end-to-end**: Spawn real MCP server process, connect, discover tools, call one. Validates full JSON-RPC handshake.
+- **Compaction state preservation**: Run agent, set label, compact, verify label and plan mode survive through compaction.
 
 ## Product Direction
 
