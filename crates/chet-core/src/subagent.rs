@@ -1,6 +1,7 @@
 //! SubagentTool — spawns a child agent to handle a delegated task.
 
 use crate::Agent;
+use crate::worktree;
 use chet_permissions::PermissionEngine;
 use chet_tools::ToolRegistry;
 use chet_types::{
@@ -105,6 +106,11 @@ impl chet_types::Tool for SubagentTool {
                     "description": {
                         "type": "string",
                         "description": "A short description of the task (for logging/display)"
+                    },
+                    "isolation": {
+                        "type": "string",
+                        "enum": ["none", "worktree"],
+                        "description": "Isolation mode. 'worktree' runs the child in an isolated git worktree. Default: 'none'."
                     }
                 }
             }),
@@ -131,6 +137,34 @@ impl chet_types::Tool for SubagentTool {
                 })?
                 .to_string();
 
+            let isolation = input
+                .get("isolation")
+                .and_then(|v| v.as_str())
+                .unwrap_or("none");
+
+            // Set up worktree isolation if requested
+            let mut managed_worktree = None;
+            let effective_cwd = if isolation == "worktree" {
+                match worktree::create_worktree(
+                    &self.cwd,
+                    None,
+                    Some(Arc::clone(&self.permissions)),
+                )
+                .await
+                {
+                    Ok(wt) => {
+                        let cwd = wt.path().to_path_buf();
+                        managed_worktree = Some(wt);
+                        cwd
+                    }
+                    Err(e) => {
+                        return Ok(ToolOutput::error(format!("Failed to create worktree: {e}")));
+                    }
+                }
+            } else {
+                self.cwd.clone()
+            };
+
             // Create child agent with builtins only (no SubagentTool → no recursion)
             let registry = ToolRegistry::with_builtins();
             let mut child = Agent::new(
@@ -139,9 +173,9 @@ impl chet_types::Tool for SubagentTool {
                 Arc::clone(&self.permissions),
                 self.model.clone(),
                 self.max_tokens,
-                self.cwd.clone(),
+                effective_cwd.clone(),
             );
-            child.set_system_prompt(subagent_system_prompt(&self.cwd));
+            child.set_system_prompt(subagent_system_prompt(&effective_cwd));
 
             let mut messages = vec![Message {
                 role: Role::User,
@@ -150,7 +184,7 @@ impl chet_types::Tool for SubagentTool {
 
             // Run silently — no-op event callback
             let cancel = CancellationToken::new();
-            match child.run(&mut messages, cancel, |_| {}).await {
+            let result = match child.run(&mut messages, cancel, |_| {}).await {
                 Ok(_usage) => {
                     let text = extract_assistant_text(&messages);
                     if text.is_empty() {
@@ -162,7 +196,16 @@ impl chet_types::Tool for SubagentTool {
                     }
                 }
                 Err(e) => Ok(ToolOutput::error(format!("Subagent error: {e}"))),
+            };
+
+            // Clean up worktree if we created one
+            if let Some(mut wt) = managed_worktree {
+                if let Err(e) = wt.cleanup().await {
+                    tracing::warn!("Failed to remove subagent worktree: {e}");
+                }
             }
+
+            result
         })
     }
 }
@@ -210,6 +253,19 @@ mod tests {
         use chet_types::Tool;
         let tool = make_tool();
         assert!(!tool.is_read_only());
+    }
+
+    #[test]
+    fn definition_schema_has_isolation_property() {
+        use chet_types::Tool;
+        let tool = make_tool();
+        let def = tool.definition();
+        let isolation = &def.input_schema["properties"]["isolation"];
+        assert!(isolation.is_object());
+        assert_eq!(isolation["type"], "string");
+        let enum_vals = isolation["enum"].as_array().unwrap();
+        assert!(enum_vals.iter().any(|v| v.as_str() == Some("none")));
+        assert!(enum_vals.iter().any(|v| v.as_str() == Some("worktree")));
     }
 
     #[test]

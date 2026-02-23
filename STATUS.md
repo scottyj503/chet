@@ -69,7 +69,8 @@
 
 ## Test Summary
 
-- 321 unit tests passing (34 api, 8 config, 14 core/agent+subagent, 21 tools, 26 permissions, 30 session, 20 types, 130 terminal, 9 cli, 29 mcp)
+- 333 unit tests passing (34 api, 8 config, 16 core/agent+subagent+worktree, 21 tools, 31 permissions, 30 session, 20 types, 135 terminal, 9 cli, 29 mcp)
+  - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working
@@ -106,7 +107,7 @@ Bugs found and fixed:
 ## Post-v1
 
 - **LSP Client**: Opt-in (default off), --lsp flag or [lsp] config. Grep/Read cover 90% of needs; LSP is heavyweight (1-2GB RAM) and hurts CI/CD. Revisit if users request it. Filter gitignored files from results.
-- **Worktree isolation**: `--worktree` flag + subagent `isolation: "worktree"` for parallel agents in isolated git worktrees. Key for CI/CD (multiple PRs reviewed simultaneously without conflicts). `WorktreeCreate`/`WorktreeRemove` hook events for custom setup/teardown.
+- ~~**Worktree isolation**~~: **DONE** — `--worktree` flag + subagent `isolation: "worktree"` for parallel agents in isolated git worktrees. `WorktreeCreate`/`WorktreeRemove` hook events, RAII cleanup via `ManagedWorktree`.
 - ~~**Non-interactive mode optimization**~~: **DONE** — TTY detection via `std::io::IsTerminal`, plain markdown passthrough, silent spinner, plain tool events, no ANSI in piped output.
 - **ConfigChange hook event**: Fire hook when config files change during a session. Enables hot-reload without restart.
 - **File-not-found path suggestions**: When model drops the repo prefix from a path, suggest the corrected path. Saves wasted agent turns.

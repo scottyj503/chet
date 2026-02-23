@@ -16,12 +16,13 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 - **Extended thinking** — opt-in via `--thinking-budget`
 - **Streaming markdown** — bold, italic, headings, code blocks with syntax highlighting, lists, links, blockquotes, tables with box-drawing
 - **Tool output polish** — spinner during API/tool execution, styled tool icons (⚡✓✗⊘), Ctrl+C returns to prompt
-- **Subagents** — delegate complex sub-tasks to child agents that run silently and return results
+- **Subagents** — delegate complex sub-tasks to child agents that run silently and return results; supports `isolation: "worktree"` for parallel-safe execution
 - **Retry & backoff** — automatic retry with exponential backoff and jitter for 429/529/5xx/network errors, respects `Retry-After` header
 - **Provider abstraction** — `Provider` trait decouples the agent loop from any specific LLM API; ships with `AnthropicProvider`
 - **Plan mode** — `/plan` toggles read-only exploration mode (Read/Glob/Grep only), produces structured plans, approve/refine/discard workflow
 - **Line editor** — arrow keys, Home/End, word movement, history, tab completion for slash commands
 - **REPL + print mode** — interactive or single-shot (`chet -p "explain this code"`)
+- **Worktree isolation** — `--worktree` flag runs entire session in an isolated git worktree; subagents support `isolation: "worktree"` for conflict-free parallel execution
 - **CI/CD-friendly** — auto-detects piped output: no ANSI escapes, no spinner, plain tool events (`chet -p "..." | jq`)
 - **TOML config** — `~/.chet/config.toml` for persistent settings
 - **Single binary** — no runtime dependencies
@@ -88,6 +89,8 @@ Options:
       --api-key <API_KEY>              API key (overrides ANTHROPIC_API_KEY)
       --resume <SESSION_ID>            Resume a previous session by ID or prefix
       --thinking-budget <TOKENS>       Enable extended thinking with token budget
+      --worktree                       Run in an isolated git worktree
+      --worktree-branch <BRANCH>       Branch name for the worktree (implies --worktree)
       --ludicrous                      Skip all permission checks
       --verbose                        Enable debug logging
   -h, --help                           Print help

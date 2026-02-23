@@ -5,7 +5,7 @@ mod prompt;
 use anyhow::{Context, Result};
 use chet_api::AnthropicProvider;
 use chet_config::{ChetConfig, CliOverrides};
-use chet_core::{Agent, AgentEvent, SubagentTool};
+use chet_core::{Agent, AgentEvent, ManagedWorktree, SubagentTool};
 use chet_mcp::{McpManager, McpTool};
 use chet_permissions::PermissionEngine;
 use chet_session::{ContextTracker, Session, SessionStore, compact};
@@ -52,6 +52,14 @@ struct Cli {
     /// Skip all permission checks — auto-permit every tool call
     #[arg(long)]
     ludicrous: bool,
+
+    /// Run in an isolated git worktree
+    #[arg(long)]
+    worktree: bool,
+
+    /// Branch name for the worktree (implies --worktree)
+    #[arg(long)]
+    worktree_branch: Option<String>,
 }
 
 #[tokio::main]
@@ -99,52 +107,97 @@ async fn main() -> Result<()> {
 
     let is_interactive = cli.print.is_none() && !cli.ludicrous;
 
+    // Set up worktree isolation if requested
+    let worktree_requested = cli.worktree || cli.worktree_branch.is_some();
+    let mut managed_worktree: Option<ManagedWorktree> = None;
+    let effective_cwd = if worktree_requested {
+        // Create a temporary permission engine for hooks during worktree setup
+        let setup_engine = Arc::new(if cli.ludicrous {
+            PermissionEngine::ludicrous()
+        } else {
+            PermissionEngine::new(config.permission_rules.clone(), config.hooks.clone(), None)
+        });
+        match chet_core::create_worktree(&cwd, cli.worktree_branch.as_deref(), Some(setup_engine))
+            .await
+        {
+            Ok(wt) => {
+                let effective = wt.path().to_path_buf();
+                eprintln!("Created worktree: {}", effective.display());
+                managed_worktree = Some(wt);
+                effective
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        cwd.clone()
+    };
+
     // Start MCP servers if configured
     let mcp_manager = start_mcp_servers(&config).await;
 
-    if let Some(prompt) = cli.print {
+    let result = if let Some(prompt) = cli.print {
         // Print mode: single prompt, no session persistence
         let engine = Arc::new(if cli.ludicrous {
             PermissionEngine::ludicrous()
         } else {
             PermissionEngine::new(config.permission_rules.clone(), config.hooks.clone(), None)
         });
-        let agent = create_agent(Arc::clone(&provider), engine, &config, &cwd, &mcp_manager);
+        let agent = create_agent(
+            Arc::clone(&provider),
+            engine,
+            &config,
+            &effective_cwd,
+            &mcp_manager,
+        );
         let mut messages = vec![user_message(&prompt)];
         let usage = run_agent(&agent, &mut messages, stdout_is_tty, stderr_is_tty).await?;
         print_usage(&usage);
         if let Some(manager) = mcp_manager {
             manager.shutdown().await;
         }
-        return Ok(());
+        Ok(())
+    } else {
+        // Interactive REPL mode
+        let engine = Arc::new(if cli.ludicrous {
+            PermissionEngine::ludicrous()
+        } else {
+            let prompt_handler: Option<Arc<dyn chet_permissions::PromptHandler>> = if is_interactive
+            {
+                Some(Arc::new(prompt::TerminalPromptHandler))
+            } else {
+                None
+            };
+            PermissionEngine::new(
+                config.permission_rules.clone(),
+                config.hooks.clone(),
+                prompt_handler,
+            )
+        });
+
+        repl(
+            provider,
+            engine,
+            &config,
+            &effective_cwd,
+            cli.resume,
+            mcp_manager,
+            stderr_is_tty,
+        )
+        .await
+    };
+
+    // Always clean up worktree (Drop is the safety net for panics/signals)
+    if let Some(mut wt) = managed_worktree {
+        eprintln!("Removing worktree...");
+        if let Err(e) = wt.cleanup().await {
+            eprintln!("Warning: failed to remove worktree: {e}");
+        }
     }
 
-    // Interactive REPL mode
-    let engine = Arc::new(if cli.ludicrous {
-        PermissionEngine::ludicrous()
-    } else {
-        let prompt_handler: Option<Arc<dyn chet_permissions::PromptHandler>> = if is_interactive {
-            Some(Arc::new(prompt::TerminalPromptHandler))
-        } else {
-            None
-        };
-        PermissionEngine::new(
-            config.permission_rules.clone(),
-            config.hooks.clone(),
-            prompt_handler,
-        )
-    });
-
-    repl(
-        provider,
-        engine,
-        &config,
-        &cwd,
-        cli.resume,
-        mcp_manager,
-        stderr_is_tty,
-    )
-    .await
+    result
 }
 
 fn create_agent(

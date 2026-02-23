@@ -402,6 +402,8 @@ impl Agent {
                     tool_input: Some(tool_input.clone()),
                     tool_output: None,
                     is_error: None,
+                    worktree_path: None,
+                    worktree_source: None,
                 };
                 if let Err(reason) = self
                     .permissions
@@ -465,6 +467,8 @@ impl Agent {
                     tool_input: Some(tool_input.clone()),
                     tool_output: Some(truncate_for_display(&output_text, 1000)),
                     is_error: Some(output.is_error),
+                    worktree_path: None,
+                    worktree_source: None,
                 };
                 if let Err(msg) = self
                     .permissions

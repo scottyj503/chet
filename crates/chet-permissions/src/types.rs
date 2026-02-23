@@ -66,6 +66,8 @@ pub enum HookEvent {
     OnExit,
     OnSessionStart,
     OnSessionEnd,
+    WorktreeCreate,
+    WorktreeRemove,
 }
 
 /// Configuration for a single hook script.
@@ -101,4 +103,85 @@ pub struct HookInput {
     /// Whether the tool execution was an error (for after_tool events).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
+    /// Path to the worktree directory (for worktree events).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree_path: Option<String>,
+    /// Path to the source repository (for worktree events).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree_source: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hook_event_serde_worktree_create() {
+        let event = HookEvent::WorktreeCreate;
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(json, "\"worktree_create\"");
+        let back: HookEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, HookEvent::WorktreeCreate);
+    }
+
+    #[test]
+    fn hook_event_serde_worktree_remove() {
+        let event = HookEvent::WorktreeRemove;
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(json, "\"worktree_remove\"");
+        let back: HookEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, HookEvent::WorktreeRemove);
+    }
+
+    #[test]
+    fn hook_input_worktree_fields_serialize() {
+        let input = HookInput {
+            event: HookEvent::WorktreeCreate,
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: None,
+            worktree_path: Some("/tmp/chet-worktree-abc".to_string()),
+            worktree_source: Some("/home/user/repo".to_string()),
+        };
+        let json = serde_json::to_value(&input).unwrap();
+        assert_eq!(json["event"], "worktree_create");
+        assert_eq!(json["worktree_path"], "/tmp/chet-worktree-abc");
+        assert_eq!(json["worktree_source"], "/home/user/repo");
+        assert!(json.get("tool_name").is_none());
+    }
+
+    #[test]
+    fn hook_input_worktree_fields_skip_when_none() {
+        let input = HookInput {
+            event: HookEvent::BeforeTool,
+            tool_name: Some("Read".to_string()),
+            tool_input: None,
+            tool_output: None,
+            is_error: None,
+            worktree_path: None,
+            worktree_source: None,
+        };
+        let json = serde_json::to_value(&input).unwrap();
+        assert!(json.get("worktree_path").is_none());
+        assert!(json.get("worktree_source").is_none());
+    }
+
+    #[test]
+    fn hook_input_roundtrip() {
+        let input = HookInput {
+            event: HookEvent::WorktreeRemove,
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: None,
+            worktree_path: Some("/tmp/wt".to_string()),
+            worktree_source: Some("/repo".to_string()),
+        };
+        let json = serde_json::to_string(&input).unwrap();
+        let back: HookInput = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.event, HookEvent::WorktreeRemove);
+        assert_eq!(back.worktree_path.as_deref(), Some("/tmp/wt"));
+        assert_eq!(back.worktree_source.as_deref(), Some("/repo"));
+    }
 }

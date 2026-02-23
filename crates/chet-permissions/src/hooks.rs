@@ -106,6 +106,8 @@ mod tests {
             tool_input: Some(serde_json::json!({"command": "ls"})),
             tool_output: None,
             is_error: None,
+            worktree_path: None,
+            worktree_source: None,
         }
     }
 

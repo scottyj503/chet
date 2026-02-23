@@ -20,6 +20,7 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 futures-util = "0.3"
+uuid = { workspace = true }
 
 [dev-dependencies]
 chet-api = { workspace = true }
