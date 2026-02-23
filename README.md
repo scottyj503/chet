@@ -22,6 +22,7 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 - **Plan mode** — `/plan` toggles read-only exploration mode (Read/Glob/Grep only), produces structured plans, approve/refine/discard workflow
 - **Line editor** — arrow keys, Home/End, word movement, history, tab completion for slash commands
 - **REPL + print mode** — interactive or single-shot (`chet -p "explain this code"`)
+- **CI/CD-friendly** — auto-detects piped output: no ANSI escapes, no spinner, plain tool events (`chet -p "..." | jq`)
 - **TOML config** — `~/.chet/config.toml` for persistent settings
 - **Single binary** — no runtime dependencies
 
@@ -186,7 +187,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (315 tests — runs fast, no API key needed)
+# Unit tests (321 tests — runs fast, no API key needed)
 cargo test --workspace
 
 # Integration tests (6 tests — mock SSE pipeline, on-demand)
