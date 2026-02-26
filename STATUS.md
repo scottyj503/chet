@@ -72,7 +72,7 @@
 - 333 unit tests passing (34 api, 8 config, 16 core/agent+subagent+worktree, 21 tools, 31 permissions, 30 session, 20 types, 135 terminal, 9 cli, 29 mcp)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
-- 5 integration tests in cancellation_integration.rs (4 cancellation + 1 multi-tool-use, run with `cargo test -p chet-core --test cancellation_integration -- --ignored`)
+- 6 integration tests in cancellation_integration.rs (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking, run with `cargo test -p chet-core --test cancellation_integration -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working
 
@@ -103,7 +103,7 @@ Bugs found and fixed:
 - **Subagent end-to-end**: Parent agent spawns child via MockProvider, child runs a tool, parent gets text result. Validates SubagentTool → Agent → tool → result pipeline. Reuse MockProvider infrastructure.
 - **Retry/backoff**: Retry lives in `ApiClient`, not the `Provider` trait, so MockProvider can't exercise it directly. Needs a `MockProvider` that returns retryable `ApiError`s on first N calls then succeeds, or a mock at the `ApiClient` level. Verify retry with delay then success is transparent to agent.
 - ~~**Multi-tool-use turn**~~: **DONE** — `test_multi_tool_use_turn` in cancellation_integration.rs. SequencedMockProvider returns 2 tool_use blocks, verifies both execute and results sent back, validates message structure (4 messages: user → assistant(2 tool_use) → user(2 tool_result) → assistant(text)).
-- **Plan mode tool blocking**: Agent in read-only mode, MockProvider requests Write tool. Verify ToolBlocked event fires. Validates safety net.
+- ~~**Plan mode tool blocking**~~: **DONE** — `test_plan_mode_tool_blocking` in cancellation_integration.rs. Agent in read-only mode, SequencedMockProvider requests non-read-only tool. Verifies ToolBlocked event fires, tool not executed, error ToolResult sent back, agent continues to final text response.
 - **Non-interactive pipe mode**: Agent with TTY=false, verify no ANSI escapes, silent spinner, plain markdown output.
 - **Session round-trip**: Save session after agent run, load back, verify messages intact. Filesystem integration test.
 - **MCP end-to-end**: Spawn real MCP server process, connect, discover tools, call one. Validates full JSON-RPC handshake.

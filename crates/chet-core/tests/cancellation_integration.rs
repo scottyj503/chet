@@ -164,15 +164,24 @@ impl Tool for SlowTool {
 // ---------------------------------------------------------------------------
 
 /// A generic test tool that echoes its input JSON as text output.
-/// The name is configurable, allowing multiple instances with different names.
+/// The name and read-only status are configurable.
 struct EchoTool {
     tool_name: String,
+    read_only: bool,
 }
 
 impl EchoTool {
     fn new(name: &str) -> Self {
         Self {
             tool_name: name.to_string(),
+            read_only: true,
+        }
+    }
+
+    fn new_writable(name: &str) -> Self {
+        Self {
+            tool_name: name.to_string(),
+            read_only: false,
         }
     }
 }
@@ -197,7 +206,7 @@ impl Tool for EchoTool {
     }
 
     fn is_read_only(&self) -> bool {
-        true // auto-permitted
+        self.read_only
     }
 
     fn execute(
@@ -220,6 +229,7 @@ struct EventCapture {
     text_deltas: Vec<String>,
     tool_starts: Vec<String>,
     tool_ends: Vec<(String, String, bool)>,
+    tool_blocked: Vec<(String, String)>,
 }
 
 impl EventCapture {
@@ -236,6 +246,7 @@ impl EventCapture {
                     output,
                     is_error,
                 } => c.tool_ends.push((name, output, is_error)),
+                AgentEvent::ToolBlocked { name, reason } => c.tool_blocked.push((name, reason)),
                 _ => {}
             }
         }
@@ -662,6 +673,119 @@ async fn test_multi_tool_use_turn() {
         })
         .collect();
     assert_eq!(final_text, "Both tools done");
+}
+
+/// Agent in read-only mode receives a tool_use for a non-read-only tool.
+/// The tool should be blocked (not executed), ToolBlocked event should fire,
+/// and the agent should continue to produce the final text response.
+#[tokio::test]
+#[ignore]
+async fn test_plan_mode_tool_blocking() {
+    // Call 1: API requests a non-read-only tool ("WriteTool")
+    let call1_events = vec![
+        (message_start_event(), None),
+        (tool_use_block_start(0, "t1", "WriteTool"), None),
+        (input_json_delta(0, r#"{"msg":"should be blocked"}"#), None),
+        (content_block_stop(0), None),
+        (message_delta_tool_use(), None),
+        (message_stop(), None),
+    ];
+
+    // Call 2: after receiving the blocked tool result, API responds with text
+    let call2_events = vec![
+        (message_start_event(), None),
+        (text_block_start(0), None),
+        (text_delta(0, "Understood, tool was blocked"), None),
+        (content_block_stop(0), None),
+        (message_delta_end_turn(), None),
+        (message_stop(), None),
+    ];
+
+    let provider: Arc<dyn Provider> =
+        Arc::new(SequencedMockProvider::new(vec![call1_events, call2_events]));
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(EchoTool::new_writable("WriteTool")));
+
+    let mut agent = make_agent(provider, registry);
+    agent.set_read_only_mode(true);
+
+    let cancel = CancellationToken::new();
+    let capture = Arc::new(Mutex::new(EventCapture::default()));
+
+    let mut messages = vec![Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text {
+            text: "Write something".to_string(),
+        }],
+    }];
+
+    let result = agent
+        .run(
+            &mut messages,
+            cancel,
+            EventCapture::callback(capture.clone()),
+        )
+        .await;
+
+    // Agent should complete successfully (blocking a tool is not a fatal error)
+    assert!(result.is_ok(), "should complete successfully: {:?}", result);
+
+    let c = capture.lock().unwrap();
+    assert!(c.saw_done, "should have seen Done event");
+    assert!(!c.saw_cancelled, "should NOT have seen Cancelled event");
+
+    // Tool should have been blocked (not executed)
+    assert_eq!(
+        c.tool_blocked.len(),
+        1,
+        "exactly one tool should be blocked"
+    );
+    assert_eq!(c.tool_blocked[0].0, "WriteTool");
+    assert!(
+        c.tool_blocked[0].1.contains("read-only"),
+        "reason should mention read-only: {:?}",
+        c.tool_blocked[0].1
+    );
+    // ToolStart fires during streaming (before the read-only check), but ToolEnd should not
+    assert_eq!(c.tool_starts.len(), 1, "ToolStart fires during streaming");
+    assert_eq!(c.tool_starts[0], "WriteTool");
+    assert!(c.tool_ends.is_empty(), "tool should NOT have executed");
+
+    // Drop lock before inspecting messages
+    drop(c);
+
+    // Message structure: [user, assistant(1 tool_use), user(1 tool_result with is_error), assistant(text)]
+    assert_eq!(
+        messages.len(),
+        4,
+        "expected 4 messages, got {}: {:?}",
+        messages.len(),
+        messages.iter().map(|m| &m.role).collect::<Vec<_>>()
+    );
+
+    // Message 2: tool result should be an error
+    assert_eq!(messages[2].role, Role::User);
+    let tool_result = messages[2]
+        .content
+        .iter()
+        .find(|b| matches!(b, ContentBlock::ToolResult { .. }));
+    assert!(tool_result.is_some(), "should have a ToolResult block");
+    if let Some(ContentBlock::ToolResult { is_error, .. }) = tool_result {
+        assert_eq!(*is_error, Some(true), "tool result should be an error");
+    }
+
+    // Message 3: final assistant text
+    assert_eq!(messages[3].role, Role::Assistant);
+    let final_text: String = messages[3]
+        .content
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(final_text, "Understood, tool was blocked");
 }
 
 /// Token is already cancelled before the agent starts.
