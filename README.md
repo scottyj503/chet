@@ -193,7 +193,7 @@ cargo check --workspace
 # Unit tests (333 tests — runs fast, no API key needed)
 cargo test --workspace
 
-# Integration tests (6 SSE pipeline + 4 cancellation — on-demand)
+# Integration tests (6 SSE pipeline + 5 agent integration — on-demand)
 cargo test --workspace -- --ignored
 
 # All tests

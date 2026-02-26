@@ -1,14 +1,15 @@
-//! End-to-end cancellation tests for `Agent::run()`.
+//! End-to-end integration tests for `Agent::run()`.
 //!
-//! These tests exercise both `tokio::select!` cancellation points in the agent loop:
-//! 1. Mid-stream: cancel arrives while SSE events are being consumed
-//! 2. Mid-tool: cancel arrives while a tool is executing
+//! These tests exercise:
+//! 1. Cancellation — both `tokio::select!` cancellation points in the agent loop
+//! 2. Multi-tool-use turns — multiple tool_use blocks in a single response
 //!
 //! Run with: `cargo test -p chet-core --test cancellation_integration -- --ignored`
 
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -63,6 +64,56 @@ impl Provider for MockProvider {
 }
 
 // ---------------------------------------------------------------------------
+// SequencedMockProvider
+// ---------------------------------------------------------------------------
+
+/// A test provider that returns different event lists on successive calls.
+/// Each `create_message_stream()` call consumes the next entry from `sequences`.
+/// Panics if called more times than there are sequences (indicates a test bug).
+struct SequencedMockProvider {
+    sequences: Vec<Vec<(StreamEvent, Option<u64>)>>,
+    call_count: AtomicUsize,
+}
+
+impl SequencedMockProvider {
+    fn new(sequences: Vec<Vec<(StreamEvent, Option<u64>)>>) -> Self {
+        Self {
+            sequences,
+            call_count: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl Provider for SequencedMockProvider {
+    fn create_message_stream<'a>(
+        &'a self,
+        _request: &'a CreateMessageRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<EventStream, ApiError>> + Send + 'a>> {
+        let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
+        assert!(
+            idx < self.sequences.len(),
+            "SequencedMockProvider: call {idx} exceeds {} sequences (test bug)",
+            self.sequences.len()
+        );
+        let events = self.sequences[idx].clone();
+        Box::pin(async move {
+            let stream = stream::unfold(events.into_iter(), |mut iter| async move {
+                let (event, delay_ms) = iter.next()?;
+                if let Some(ms) = delay_ms {
+                    tokio::time::sleep(Duration::from_millis(ms)).await;
+                }
+                Some((Ok(event), iter))
+            });
+            Ok(Box::pin(stream) as EventStream)
+        })
+    }
+
+    fn name(&self) -> &str {
+        "sequenced-mock"
+    }
+}
+
+// ---------------------------------------------------------------------------
 // SlowTool
 // ---------------------------------------------------------------------------
 
@@ -109,6 +160,56 @@ impl Tool for SlowTool {
 }
 
 // ---------------------------------------------------------------------------
+// EchoTool
+// ---------------------------------------------------------------------------
+
+/// A generic test tool that echoes its input JSON as text output.
+/// The name is configurable, allowing multiple instances with different names.
+struct EchoTool {
+    tool_name: String,
+}
+
+impl EchoTool {
+    fn new(name: &str) -> Self {
+        Self {
+            tool_name: name.to_string(),
+        }
+    }
+}
+
+impl Tool for EchoTool {
+    fn name(&self) -> &str {
+        &self.tool_name
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: self.tool_name.clone(),
+            description: format!("Echo tool named {}", self.tool_name),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "msg": { "type": "string" }
+                }
+            }),
+            cache_control: None,
+        }
+    }
+
+    fn is_read_only(&self) -> bool {
+        true // auto-permitted
+    }
+
+    fn execute(
+        &self,
+        input: serde_json::Value,
+        _ctx: ToolContext,
+    ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, chet_types::ToolError>> + Send + '_>> {
+        Box::pin(async move { Ok(ToolOutput::text(input.to_string())) })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // EventCapture
 // ---------------------------------------------------------------------------
 
@@ -118,6 +219,7 @@ struct EventCapture {
     saw_done: bool,
     text_deltas: Vec<String>,
     tool_starts: Vec<String>,
+    tool_ends: Vec<(String, String, bool)>,
 }
 
 impl EventCapture {
@@ -129,6 +231,11 @@ impl EventCapture {
                 AgentEvent::Done => c.saw_done = true,
                 AgentEvent::TextDelta(t) => c.text_deltas.push(t),
                 AgentEvent::ToolStart { name, .. } => c.tool_starts.push(name),
+                AgentEvent::ToolEnd {
+                    name,
+                    output,
+                    is_error,
+                } => c.tool_ends.push((name, output, is_error)),
                 _ => {}
             }
         }
@@ -212,6 +319,10 @@ fn message_delta_end_turn() -> StreamEvent {
             cache_read_input_tokens: 0,
         }),
     }
+}
+
+fn message_stop() -> StreamEvent {
+    StreamEvent::MessageStop
 }
 
 fn message_delta_tool_use() -> StreamEvent {
@@ -414,6 +525,143 @@ async fn test_cancel_after_completion() {
     let c = capture.lock().unwrap();
     assert!(c.saw_done, "should have seen Done event");
     assert!(!c.saw_cancelled, "should NOT have seen Cancelled event");
+}
+
+/// MockProvider returns 2 tool_use blocks in one response. Both tools execute,
+/// results are sent back, and the agent completes with a final text response.
+/// Validates the common real-world pattern of parallel tool calls.
+#[tokio::test]
+#[ignore]
+async fn test_multi_tool_use_turn() {
+    // Call 1: two tool_use blocks in one response
+    let call1_events = vec![
+        (message_start_event(), None),
+        (tool_use_block_start(0, "t1", "EchoA"), None),
+        (input_json_delta(0, r#"{"msg":"alpha"}"#), None),
+        (content_block_stop(0), None),
+        (tool_use_block_start(1, "t2", "EchoB"), None),
+        (input_json_delta(1, r#"{"msg":"beta"}"#), None),
+        (content_block_stop(1), None),
+        (message_delta_tool_use(), None),
+        (message_stop(), None),
+    ];
+
+    // Call 2: final text response after tool results
+    let call2_events = vec![
+        (message_start_event(), None),
+        (text_block_start(0), None),
+        (text_delta(0, "Both tools done"), None),
+        (content_block_stop(0), None),
+        (message_delta_end_turn(), None),
+        (message_stop(), None),
+    ];
+
+    let provider: Arc<dyn Provider> =
+        Arc::new(SequencedMockProvider::new(vec![call1_events, call2_events]));
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(EchoTool::new("EchoA")));
+    registry.register(Arc::new(EchoTool::new("EchoB")));
+
+    let agent = make_agent(provider, registry);
+    let cancel = CancellationToken::new();
+    let capture = Arc::new(Mutex::new(EventCapture::default()));
+
+    let mut messages = vec![Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text {
+            text: "Use both tools".to_string(),
+        }],
+    }];
+
+    let result = agent
+        .run(
+            &mut messages,
+            cancel,
+            EventCapture::callback(capture.clone()),
+        )
+        .await;
+
+    // Agent should complete successfully
+    assert!(result.is_ok(), "should complete successfully: {:?}", result);
+
+    let c = capture.lock().unwrap();
+    assert!(c.saw_done, "should have seen Done event");
+    assert!(!c.saw_cancelled, "should NOT have seen Cancelled event");
+
+    // Both tools should have started and ended
+    assert!(
+        c.tool_starts.contains(&"EchoA".to_string()),
+        "should have started EchoA"
+    );
+    assert!(
+        c.tool_starts.contains(&"EchoB".to_string()),
+        "should have started EchoB"
+    );
+    assert_eq!(c.tool_ends.len(), 2, "both tools should have ended");
+    assert!(
+        !c.tool_ends[0].2,
+        "EchoA should not be an error: {:?}",
+        c.tool_ends[0]
+    );
+    assert!(
+        !c.tool_ends[1].2,
+        "EchoB should not be an error: {:?}",
+        c.tool_ends[1]
+    );
+
+    // Drop lock before inspecting messages
+    drop(c);
+
+    // Message structure: [user, assistant(2 tool_use), user(2 tool_result), assistant(text)]
+    assert_eq!(
+        messages.len(),
+        4,
+        "expected 4 messages, got {}: {:?}",
+        messages.len(),
+        messages.iter().map(|m| &m.role).collect::<Vec<_>>()
+    );
+
+    // Message 0: original user message
+    assert_eq!(messages[0].role, Role::User);
+
+    // Message 1: assistant with 2 ToolUse content blocks
+    assert_eq!(messages[1].role, Role::Assistant);
+    let tool_use_blocks: Vec<_> = messages[1]
+        .content
+        .iter()
+        .filter(|b| matches!(b, ContentBlock::ToolUse { .. }))
+        .collect();
+    assert_eq!(
+        tool_use_blocks.len(),
+        2,
+        "assistant message should have 2 ToolUse blocks"
+    );
+
+    // Message 2: user with 2 ToolResult content blocks
+    assert_eq!(messages[2].role, Role::User);
+    let tool_result_blocks: Vec<_> = messages[2]
+        .content
+        .iter()
+        .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
+        .collect();
+    assert_eq!(
+        tool_result_blocks.len(),
+        2,
+        "user message should have 2 ToolResult blocks"
+    );
+
+    // Message 3: final assistant text
+    assert_eq!(messages[3].role, Role::Assistant);
+    let final_text: String = messages[3]
+        .content
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(final_text, "Both tools done");
 }
 
 /// Token is already cancelled before the agent starts.
