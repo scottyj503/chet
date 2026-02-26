@@ -71,7 +71,8 @@
 
 - 333 unit tests passing (34 api, 8 config, 16 core/agent+subagent+worktree, 21 tools, 31 permissions, 30 session, 20 types, 135 terminal, 9 cli, 29 mcp)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
-- 6 integration tests (mock SSE pipeline, run with `cargo test -- --ignored`)
+- 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
+- 4 retry integration tests (TCP test server, run with `cargo test -p chet-api --test retry_integration -- --ignored`)
 - 7 integration tests in cancellation_integration.rs (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e, run with `cargo test -p chet-core --test cancellation_integration -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working
@@ -101,7 +102,7 @@ Bugs found and fixed:
 
 - ~~**Cancellation integration test**~~: **DONE** — 4 `#[ignore]` tests in `crates/chet-core/tests/cancellation_integration.rs` (MockProvider + SlowTool). Covers mid-stream, mid-tool, after-completion, and pre-cancelled token. Run with `cargo test -p chet-core --test cancellation_integration -- --ignored`.
 - ~~**Subagent end-to-end**~~: **DONE** — `test_subagent_end_to_end` in cancellation_integration.rs. Parent agent calls SubagentTool via SequencedMockProvider (3 calls: parent tool_use → child text → parent final text). Validates full SubagentTool → child Agent → text result → parent pipeline.
-- **Retry/backoff**: Retry lives in `ApiClient`, not the `Provider` trait, so MockProvider can't exercise it directly. Needs a `MockProvider` that returns retryable `ApiError`s on first N calls then succeeds, or a mock at the `ApiClient` level. Verify retry with delay then success is transparent to agent.
+- ~~**Retry/backoff**~~: **DONE** — 4 `#[ignore]` tests in `crates/chet-api/tests/retry_integration.rs`. Raw TCP test server (no new deps) returns 429/500/401 responses. Covers: 429→retry→success, 500→retry→success, retry exhaustion, and non-retryable 401 (no retry). Run with `cargo test -p chet-api --test retry_integration -- --ignored`.
 - ~~**Multi-tool-use turn**~~: **DONE** — `test_multi_tool_use_turn` in cancellation_integration.rs. SequencedMockProvider returns 2 tool_use blocks, verifies both execute and results sent back, validates message structure (4 messages: user → assistant(2 tool_use) → user(2 tool_result) → assistant(text)).
 - ~~**Plan mode tool blocking**~~: **DONE** — `test_plan_mode_tool_blocking` in cancellation_integration.rs. Agent in read-only mode, SequencedMockProvider requests non-read-only tool. Verifies ToolBlocked event fires, tool not executed, error ToolResult sent back, agent continues to final text response.
 - **Non-interactive pipe mode**: Agent with TTY=false, verify no ANSI escapes, silent spinner, plain markdown output.
