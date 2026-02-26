@@ -3,6 +3,8 @@
 //! These tests exercise:
 //! 1. Cancellation — both `tokio::select!` cancellation points in the agent loop
 //! 2. Multi-tool-use turns — multiple tool_use blocks in a single response
+//! 3. Plan mode tool blocking — read-only safety net
+//! 4. Subagent end-to-end — parent spawns child via SubagentTool
 //!
 //! Run with: `cargo test -p chet-core --test cancellation_integration -- --ignored`
 
@@ -13,7 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use chet_core::{Agent, AgentEvent};
+use chet_core::{Agent, AgentEvent, SubagentTool};
 use chet_permissions::PermissionEngine;
 use chet_tools::ToolRegistry;
 use chet_types::{
@@ -786,6 +788,166 @@ async fn test_plan_mode_tool_blocking() {
         })
         .collect();
     assert_eq!(final_text, "Understood, tool was blocked");
+}
+
+/// Parent agent calls SubagentTool, child agent runs against the same mock provider
+/// and returns a text response, parent receives the child's text as tool output and
+/// produces a final response. Validates the full SubagentTool → Agent → result pipeline.
+#[tokio::test]
+#[ignore]
+async fn test_subagent_end_to_end() {
+    // The Subagent tool input JSON
+    let subagent_input = r#"{"prompt":"What is 2+2?","description":"math question"}"#;
+
+    // Call 1 (parent): returns Subagent tool_use
+    let call1_events = vec![
+        (message_start_event(), None),
+        (tool_use_block_start(0, "t1", "Subagent"), None),
+        (input_json_delta(0, subagent_input), None),
+        (content_block_stop(0), None),
+        (message_delta_tool_use(), None),
+        (message_stop(), None),
+    ];
+
+    // Call 2 (child agent inside SubagentTool): returns text directly
+    let call2_events = vec![
+        (message_start_event(), None),
+        (text_block_start(0), None),
+        (text_delta(0, "The answer is 4"), None),
+        (content_block_stop(0), None),
+        (message_delta_end_turn(), None),
+        (message_stop(), None),
+    ];
+
+    // Call 3 (parent): after receiving subagent result, returns final text
+    let call3_events = vec![
+        (message_start_event(), None),
+        (text_block_start(0), None),
+        (text_delta(0, "Subagent says: 4"), None),
+        (content_block_stop(0), None),
+        (message_delta_end_turn(), None),
+        (message_stop(), None),
+    ];
+
+    let provider: Arc<dyn Provider> = Arc::new(SequencedMockProvider::new(vec![
+        call1_events,
+        call2_events,
+        call3_events,
+    ]));
+
+    let permissions = Arc::new(PermissionEngine::ludicrous());
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(SubagentTool::new(
+        Arc::clone(&provider),
+        Arc::clone(&permissions),
+        "test-model".to_string(),
+        1024,
+        PathBuf::from("/tmp"),
+    )));
+
+    let agent = Agent::new(
+        Arc::clone(&provider),
+        registry,
+        permissions,
+        "test-model".to_string(),
+        1024,
+        PathBuf::from("/tmp"),
+    );
+
+    let cancel = CancellationToken::new();
+    let capture = Arc::new(Mutex::new(EventCapture::default()));
+
+    let mut messages = vec![Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text {
+            text: "Ask a subagent what 2+2 is".to_string(),
+        }],
+    }];
+
+    let result = agent
+        .run(
+            &mut messages,
+            cancel,
+            EventCapture::callback(capture.clone()),
+        )
+        .await;
+
+    // Agent should complete successfully
+    assert!(result.is_ok(), "should complete successfully: {:?}", result);
+
+    let c = capture.lock().unwrap();
+    assert!(c.saw_done, "should have seen Done event");
+    assert!(!c.saw_cancelled, "should NOT have seen Cancelled event");
+
+    // Subagent tool should have started and ended successfully
+    assert!(
+        c.tool_starts.contains(&"Subagent".to_string()),
+        "should have started Subagent tool"
+    );
+    assert_eq!(c.tool_ends.len(), 1, "one tool should have ended");
+    assert_eq!(c.tool_ends[0].0, "Subagent");
+    assert!(
+        !c.tool_ends[0].2,
+        "Subagent should not be an error: {:?}",
+        c.tool_ends[0]
+    );
+    // The tool output should contain the child agent's response
+    assert!(
+        c.tool_ends[0].1.contains("The answer is 4"),
+        "tool output should contain child's response: {:?}",
+        c.tool_ends[0].1
+    );
+
+    // Drop lock before inspecting messages
+    drop(c);
+
+    // Message structure: [user, assistant(Subagent tool_use), user(tool_result), assistant(text)]
+    assert_eq!(
+        messages.len(),
+        4,
+        "expected 4 messages, got {}: {:?}",
+        messages.len(),
+        messages.iter().map(|m| &m.role).collect::<Vec<_>>()
+    );
+
+    // Message 1: assistant with Subagent ToolUse
+    assert_eq!(messages[1].role, Role::Assistant);
+    let has_subagent_use = messages[1]
+        .content
+        .iter()
+        .any(|b| matches!(b, ContentBlock::ToolUse { name, .. } if name == "Subagent"));
+    assert!(has_subagent_use, "assistant should have Subagent ToolUse");
+
+    // Message 2: tool result containing the child's text
+    assert_eq!(messages[2].role, Role::User);
+    let tool_result_text = messages[2]
+        .content
+        .iter()
+        .find_map(|b| match b {
+            ContentBlock::ToolResult { content, .. } => content.iter().find_map(|c| match c {
+                chet_types::ToolResultContent::Text { text } => Some(text.as_str()),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .unwrap_or("");
+    assert!(
+        tool_result_text.contains("The answer is 4"),
+        "tool result should contain child's response: {:?}",
+        tool_result_text
+    );
+
+    // Message 3: final assistant text
+    assert_eq!(messages[3].role, Role::Assistant);
+    let final_text: String = messages[3]
+        .content
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(final_text, "Subagent says: 4");
 }
 
 /// Token is already cancelled before the agent starts.
