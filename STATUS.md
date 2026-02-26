@@ -73,7 +73,8 @@
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
 - 4 retry integration tests (TCP test server, run with `cargo test -p chet-api --test retry_integration -- --ignored`)
-- 7 integration tests in cancellation_integration.rs (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e, run with `cargo test -p chet-core --test cancellation_integration -- --ignored`)
+- 7 agent integration tests in cancellation_integration.rs (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e, run with `cargo test -p chet-core --test cancellation_integration -- --ignored`)
+- 3 session round-trip tests (filesystem, run with `cargo test -p chet-session --test session_roundtrip -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working
 
@@ -106,7 +107,7 @@ Bugs found and fixed:
 - ~~**Multi-tool-use turn**~~: **DONE** — `test_multi_tool_use_turn` in cancellation_integration.rs. SequencedMockProvider returns 2 tool_use blocks, verifies both execute and results sent back, validates message structure (4 messages: user → assistant(2 tool_use) → user(2 tool_result) → assistant(text)).
 - ~~**Plan mode tool blocking**~~: **DONE** — `test_plan_mode_tool_blocking` in cancellation_integration.rs. Agent in read-only mode, SequencedMockProvider requests non-read-only tool. Verifies ToolBlocked event fires, tool not executed, error ToolResult sent back, agent continues to final text response.
 - **Non-interactive pipe mode**: Agent with TTY=false, verify no ANSI escapes, silent spinner, plain markdown output.
-- **Session round-trip**: Save session after agent run, load back, verify messages intact. Filesystem integration test.
+- ~~**Session round-trip**~~: **DONE** — 3 `#[ignore]` tests in `crates/chet-session/tests/session_roundtrip.rs`. Realistic 8-message session with Text, ToolUse, ToolResult content blocks, usage, metadata label, compaction count. Covers: complex round-trip, list/summary, and save-modify-save update. Run with `cargo test -p chet-session --test session_roundtrip -- --ignored`.
 - **MCP end-to-end**: Spawn real MCP server process, connect, discover tools, call one. Validates full JSON-RPC handshake.
 - **Compaction state preservation**: Run agent, set label, compact, verify label and plan mode survive through compaction.
 
@@ -127,6 +128,12 @@ Bugs found and fixed:
 - **`chet agents` CLI command**: List all configured agents/subagent definitions for discoverability.
 - **MCP reconnect resilience**: Handle `/mcp reconnect` with non-existent server name gracefully instead of freezing.
 - **Session flush on disconnect**: Flush session data before hooks/analytics on SSH disconnect or connection drop. Critical for remote/CI usage.
+- **Auto-memory**: Automatically save useful context (patterns, conventions, preferences) across sessions. `/memory` command to manage. Chet equivalent of CLAUDE.md auto-generation.
+- **Smarter bash permission prefixes**: Compound commands (`cd /tmp && git fetch && git push`) compute per-subcommand prefixes for granular "always allow" matching instead of treating the whole string as one.
+- **Config file corruption prevention**: Atomic writes / file locking when multiple instances (or parallel agents) touch config simultaneously.
+- **Tool result disk persistence**: Persist tool results >50K chars to disk instead of keeping in context. Reduces context window usage for long sessions.
+- **`/copy` command**: Interactive picker to select and copy individual code blocks or full response from agent output.
+- **`/model` human-readable labels**: Show "Sonnet 4.5" instead of raw model IDs in model picker, with upgrade hints for newer versions.
 
 ## Decisions Log
 
