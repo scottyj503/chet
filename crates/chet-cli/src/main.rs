@@ -9,13 +9,16 @@ use chet_core::{Agent, AgentEvent, ManagedWorktree, SubagentTool};
 use chet_mcp::{McpManager, McpTool};
 use chet_permissions::PermissionEngine;
 use chet_session::{ContextTracker, Session, SessionStore, compact};
-use chet_terminal::{LineEditor, ReadLineResult, SlashCommandCompleter, StreamingMarkdownRenderer};
+use chet_terminal::{
+    LineEditor, ReadLineResult, SlashCommandCompleter, StatusLine, StatusLineData,
+    StreamingMarkdownRenderer,
+};
 use chet_tools::ToolRegistry;
 use chet_types::{ContentBlock, Effort, Message, Role, Usage, provider::Provider};
 use chrono::Utc;
 use clap::Parser;
 use std::io::{self, BufRead, Write};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Parser)]
@@ -158,7 +161,7 @@ async fn main() -> Result<()> {
             &mcp_manager,
         );
         let mut messages = vec![user_message(&prompt)];
-        let usage = run_agent(&agent, &mut messages, stdout_is_tty, stderr_is_tty).await?;
+        let usage = run_agent(&agent, &mut messages, stdout_is_tty, stderr_is_tty, None).await?;
         print_usage(&usage);
         if let Some(manager) = mcp_manager {
             manager.shutdown().await;
@@ -315,17 +318,62 @@ async fn repl(
     );
     eprintln!("Type your message. Press Ctrl+D to exit.\n");
 
+    // Create status line (TTY only)
+    let status_line: Option<Arc<Mutex<StatusLine>>> = if stderr_is_tty {
+        let context_window_k = chet_session::ContextTracker::new(&config.model)
+            .estimate(&[], None)
+            .context_window as f64
+            / 1000.0;
+        let data = StatusLineData {
+            model: config.model.clone(),
+            session_id: session.short_id(),
+            context_tokens_k: 0.0,
+            context_window_k,
+            context_percent: 0.0,
+            input_tokens: session.total_usage.input_tokens,
+            output_tokens: session.total_usage.output_tokens,
+            effort: config.effort,
+            plan_mode: false,
+            active_tool: None,
+        };
+        let mut sl = StatusLine::new(data);
+        sl.install();
+        Some(Arc::new(Mutex::new(sl)))
+    } else {
+        None
+    };
+
     let mut plan_mode = false;
 
     loop {
         let prompt = if plan_mode { "plan> " } else { "> " };
+
+        // Suspend status line before line editor
+        if let Some(sl) = &status_line {
+            sl.lock().unwrap().suspend();
+        }
+
         let input = match editor.read_line(prompt).await? {
-            ReadLineResult::Line(line) => line,
+            ReadLineResult::Line(line) => {
+                // Resume status line after line editor returns
+                if let Some(sl) = &status_line {
+                    sl.lock().unwrap().resume();
+                }
+                line
+            }
             ReadLineResult::Eof => {
+                if let Some(sl) = &status_line {
+                    sl.lock().unwrap().resume();
+                }
                 eprintln!();
                 break;
             }
-            ReadLineResult::Interrupted => continue,
+            ReadLineResult::Interrupted => {
+                if let Some(sl) = &status_line {
+                    sl.lock().unwrap().resume();
+                }
+                continue;
+            }
         };
 
         let input = input.trim();
@@ -348,6 +396,9 @@ async fn repl(
                 agent.set_system_prompt(plan_system_prompt(cwd));
                 eprintln!("{}", chet_terminal::style::plan_mode_banner(stderr_is_tty));
             }
+            if let Some(sl) = &status_line {
+                sl.lock().unwrap().update_field(|d| d.plan_mode = plan_mode);
+            }
             continue;
         }
 
@@ -364,6 +415,9 @@ async fn repl(
                     Ok(e) => {
                         agent.set_effort(Some(e));
                         eprintln!("Effort set to: {e}");
+                        if let Some(sl) = &status_line {
+                            sl.lock().unwrap().update_field(|d| d.effort = Some(e));
+                        }
                     }
                     Err(msg) => eprintln!("{msg}"),
                 }
@@ -382,6 +436,19 @@ async fn repl(
         )
         .await
         {
+            // Update status line for commands that change session state
+            if input == "/clear" || input.starts_with("/resume") {
+                if let Some(sl) = &status_line {
+                    let info = context_tracker.estimate(&session.messages, Some(&system));
+                    sl.lock().unwrap().update_field(|d| {
+                        d.session_id = session.short_id();
+                        d.context_tokens_k = info.estimated_tokens as f64 / 1000.0;
+                        d.context_percent = info.usage_percent();
+                        d.input_tokens = session.total_usage.input_tokens;
+                        d.output_tokens = session.total_usage.output_tokens;
+                    });
+                }
+            }
             match handled {
                 SlashResult::Continue => continue,
                 SlashResult::Break => break,
@@ -394,7 +461,15 @@ async fn repl(
 
         session.messages.push(user_message(input));
 
-        match run_agent(&agent, &mut session.messages, true, stderr_is_tty).await {
+        match run_agent(
+            &agent,
+            &mut session.messages,
+            true,
+            stderr_is_tty,
+            status_line.clone(),
+        )
+        .await
+        {
             Ok(usage) => {
                 session.total_usage.add(&usage);
                 session.updated_at = Utc::now();
@@ -434,6 +509,9 @@ async fn repl(
                             eprintln!("Plan discarded. Exiting plan mode.");
                         }
                     }
+                    if let Some(sl) = &status_line {
+                        sl.lock().unwrap().update_field(|d| d.plan_mode = plan_mode);
+                    }
                 }
 
                 // Auto-save
@@ -441,9 +519,21 @@ async fn repl(
                     eprintln!("Warning: failed to save session: {e}");
                 }
 
-                // Print brief context line
+                // Update status line with latest context info
                 let info = context_tracker.estimate(&session.messages, Some(&system));
-                eprintln!("{}", context_tracker.format_brief(&info));
+                if let Some(sl) = &status_line {
+                    sl.lock().unwrap().update_field(|d| {
+                        d.context_tokens_k = info.estimated_tokens as f64 / 1000.0;
+                        d.context_percent = info.usage_percent();
+                        d.input_tokens = session.total_usage.input_tokens;
+                        d.output_tokens = session.total_usage.output_tokens;
+                        d.plan_mode = plan_mode;
+                        d.effort = agent.effort();
+                    });
+                } else {
+                    // Non-TTY: print brief context line
+                    eprintln!("{}", context_tracker.format_brief(&info));
+                }
             }
             Err(e) => {
                 eprintln!("\nError: {e}");
@@ -453,6 +543,11 @@ async fn repl(
         }
 
         println!();
+    }
+
+    // Tear down status line before exiting
+    if let Some(sl) = &status_line {
+        sl.lock().unwrap().teardown();
     }
 
     editor.save_history()?;
@@ -641,6 +736,7 @@ async fn run_agent(
     messages: &mut Vec<Message>,
     stdout_is_tty: bool,
     stderr_is_tty: bool,
+    status_line: Option<Arc<Mutex<StatusLine>>>,
 ) -> Result<Usage> {
     let stdout = io::stdout();
     let mut renderer = if stdout_is_tty {
@@ -662,6 +758,30 @@ async fn run_agent(
     };
     let spinner = chet_terminal::spinner::Spinner::new(&thinking_msg, !stderr_is_tty);
     let mut first_text = true;
+
+    // Clone Arc for the event callback closure
+    let sl_for_callback = status_line.clone();
+
+    // Spawn SIGWINCH handler for terminal resize
+    #[cfg(unix)]
+    let resize_task = {
+        let sl_for_resize = status_line.clone();
+        tokio::spawn(async move {
+            if let Some(sl) = sl_for_resize {
+                let mut sig = match tokio::signal::unix::signal(
+                    tokio::signal::unix::SignalKind::window_change(),
+                ) {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
+                while sig.recv().await.is_some() {
+                    if let Ok((w, h)) = crossterm::terminal::size() {
+                        sl.lock().unwrap().resize(w, h);
+                    }
+                }
+            }
+        })
+    };
 
     let result = agent
         .run(messages, cancel, |event| match event {
@@ -695,6 +815,11 @@ async fn run_agent(
                     "{}",
                     chet_terminal::style::tool_start(&name, stderr_is_tty)
                 );
+                if let Some(sl) = &sl_for_callback {
+                    sl.lock().unwrap().update_field(|d| {
+                        d.active_tool = Some(name.clone());
+                    });
+                }
                 spinner.set_message(&format!("Running {name}..."));
                 spinner.set_active(true);
             }
@@ -717,6 +842,11 @@ async fn run_agent(
                         "{}",
                         chet_terminal::style::tool_success(&name, &output, stderr_is_tty)
                     );
+                }
+                if let Some(sl) = &sl_for_callback {
+                    sl.lock().unwrap().update_field(|d| {
+                        d.active_tool = None;
+                    });
                 }
                 spinner.set_message(&thinking_msg);
                 spinner.set_active(true);
@@ -742,6 +872,11 @@ async fn run_agent(
                 spinner.set_active(false);
                 chet_terminal::spinner::clear_line(stderr_is_tty);
                 renderer.finish();
+                if let Some(sl) = &sl_for_callback {
+                    sl.lock().unwrap().update_field(|d| {
+                        d.active_tool = None;
+                    });
+                }
                 let _ = writeln!(io::stdout());
             }
             AgentEvent::Error(e) => {
@@ -753,6 +888,8 @@ async fn run_agent(
         .await;
 
     signal_task.abort(); // clean up signal listener
+    #[cfg(unix)]
+    resize_task.abort();
     spinner.stop(stderr_is_tty).await;
 
     match result {

@@ -9,8 +9,10 @@ mod keys;
 pub mod markdown;
 mod render;
 pub mod spinner;
+pub mod statusline;
 pub mod style;
 
 pub use completion::{Completer, SlashCommandCompleter};
 pub use editor::{LineEditor, ReadLineResult};
 pub use markdown::StreamingMarkdownRenderer;
+pub use statusline::{StatusLine, StatusLineData};

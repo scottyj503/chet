@@ -15,6 +15,7 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 - **Prompt caching** — automatic cache control on system prompt and tool definitions
 - **Extended thinking** — opt-in via `--thinking-budget` or `--effort` (low/medium/high)
 - **Streaming markdown** — bold, italic, headings, code blocks with syntax highlighting, lists, links, blockquotes, tables with box-drawing
+- **Status line** — persistent bottom bar showing model, context usage, tokens, effort, session, plan mode, and active tool; updates in real-time during execution
 - **Tool output polish** — spinner during API/tool execution, styled tool icons (⚡✓✗⊘), Ctrl+C returns to prompt
 - **Subagents** — delegate complex sub-tasks to child agents that run silently and return results; supports `isolation: "worktree"` for parallel-safe execution
 - **Retry & backoff** — automatic retry with exponential backoff and jitter for 429/529/5xx/network errors, respects `Retry-After` header
@@ -193,7 +194,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (339 tests — runs fast, no API key needed)
+# Unit tests (357 tests — runs fast, no API key needed)
 cargo test --workspace
 
 # Integration tests (6 SSE + 4 retry + 8 agent + 1 pipe mode + 3 MCP e2e + 3 session — on-demand)
