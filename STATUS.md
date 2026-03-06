@@ -74,6 +74,7 @@
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
 - 4 retry integration tests (TCP test server, run with `cargo test -p chet-api --test retry_integration -- --ignored`)
 - 7 agent integration tests in cancellation_integration.rs (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e, run with `cargo test -p chet-core --test cancellation_integration -- --ignored`)
+- 1 pipe mode integration test (ANSI-free output, run with `cargo test -p chet --test pipe_mode -- --ignored`)
 - 3 session round-trip tests (filesystem, run with `cargo test -p chet-session --test session_roundtrip -- --ignored`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working
@@ -106,7 +107,7 @@ Bugs found and fixed:
 - ~~**Retry/backoff**~~: **DONE** — 4 `#[ignore]` tests in `crates/chet-api/tests/retry_integration.rs`. Raw TCP test server (no new deps) returns 429/500/401 responses. Covers: 429→retry→success, 500→retry→success, retry exhaustion, and non-retryable 401 (no retry). Run with `cargo test -p chet-api --test retry_integration -- --ignored`.
 - ~~**Multi-tool-use turn**~~: **DONE** — `test_multi_tool_use_turn` in cancellation_integration.rs. SequencedMockProvider returns 2 tool_use blocks, verifies both execute and results sent back, validates message structure (4 messages: user → assistant(2 tool_use) → user(2 tool_result) → assistant(text)).
 - ~~**Plan mode tool blocking**~~: **DONE** — `test_plan_mode_tool_blocking` in cancellation_integration.rs. Agent in read-only mode, SequencedMockProvider requests non-read-only tool. Verifies ToolBlocked event fires, tool not executed, error ToolResult sent back, agent continues to final text response.
-- **Non-interactive pipe mode**: Agent with TTY=false, verify no ANSI escapes, silent spinner, plain markdown output.
+- ~~**Non-interactive pipe mode**~~: **DONE** — `test_pipe_mode_no_ansi` in `crates/chet-cli/tests/pipe_mode.rs`. SequencedMockProvider drives tool-use turn + markdown text response through full event callback pipeline with TTY=false. Captures stdout (plain markdown renderer) and stderr (style functions), asserts zero `\x1b` bytes. Run with `cargo test -p chet --test pipe_mode -- --ignored`.
 - ~~**Session round-trip**~~: **DONE** — 3 `#[ignore]` tests in `crates/chet-session/tests/session_roundtrip.rs`. Realistic 8-message session with Text, ToolUse, ToolResult content blocks, usage, metadata label, compaction count. Covers: complex round-trip, list/summary, and save-modify-save update. Run with `cargo test -p chet-session --test session_roundtrip -- --ignored`.
 - **MCP end-to-end**: Spawn real MCP server process, connect, discover tools, call one. Validates full JSON-RPC handshake.
 - **Compaction state preservation**: Run agent, set label, compact, verify label and plan mode survive through compaction.
@@ -123,17 +124,27 @@ Bugs found and fixed:
 - **ConfigChange hook event**: Fire hook when config files change during a session. Enables hot-reload without restart.
 - **File-not-found path suggestions**: When model drops the repo prefix from a path, suggest the corrected path. Saves wasted agent turns.
 - **Enhanced permission restriction reasons**: Show why a path or working directory is blocked, not just that it is.
-- **Status line**: Persistent terminal status bar showing model, tokens, cost, session ID, mode (plan/normal), active agent name (e.g., `subagent: code-quality-reviewer`), active MCP server+tool (e.g., `mcp: jira → search_issues`), LSP status. Structured JSON output for CI/CD log parsing.
-- **Memory management**: Clear internal caches after compaction, cap file history snapshots, free completed task output. Prevent unbounded growth in long sessions.
+- **Status line**: Persistent terminal status bar showing model, tokens, cost, session ID, mode (plan/normal), active agent name (e.g., `subagent: code-quality-reviewer`), active MCP server+tool (e.g., `mcp: jira → search_issues`), LSP status, worktree info (name/path/branch). Structured JSON output for CI/CD log parsing.
+- **Memory management**: Clear internal caches after compaction, cap file history snapshots, free completed task output, strip heavy progress payloads during compaction for subagent sessions. Audit checklist: any cache (git root, JSON parsing, tool results, MCP resources) must have a bounded size or TTL to prevent unbounded growth in long sessions.
 - **`chet agents` CLI command**: List all configured agents/subagent definitions for discoverability.
 - **MCP reconnect resilience**: Handle `/mcp reconnect` with non-existent server name gracefully instead of freezing.
 - **Session flush on disconnect**: Flush session data before hooks/analytics on SSH disconnect or connection drop. Critical for remote/CI usage.
-- **Auto-memory**: Automatically save useful context (patterns, conventions, preferences) across sessions. `/memory` command to manage. Chet equivalent of CLAUDE.md auto-generation.
+- **Auto-memory**: Automatically save useful context (patterns, conventions, preferences) across sessions. `/memory` command to manage. Chet equivalent of CLAUDE.md auto-generation. Share project configs + auto-memory across git worktrees of the same repo.
 - **Smarter bash permission prefixes**: Compound commands (`cd /tmp && git fetch && git push`) compute per-subcommand prefixes for granular "always allow" matching instead of treating the whole string as one.
 - **Config file corruption prevention**: Atomic writes / file locking when multiple instances (or parallel agents) touch config simultaneously.
 - **Tool result disk persistence**: Persist tool results >50K chars to disk instead of keeping in context. Reduces context window usage for long sessions.
 - **`/copy` command**: Interactive picker to select and copy individual code blocks or full response from agent output.
 - **`/model` human-readable labels**: Show "Sonnet 4.5" instead of raw model IDs in model picker, with upgrade hints for newer versions.
+- **HTTP hooks**: Hooks can POST JSON to a URL and receive JSON back instead of running shell commands. Enables webhook integrations (Slack, CI status) without shell script wrappers.
+- **Effort levels**: Expose Anthropic API `effort` parameter (low/medium/high). Configurable default via `[api]` config, per-turn override via "ultrathink" keyword or `/effort high` command. Extends existing `--thinking-budget` flag. Show effort level in spinner (e.g., "with low effort"). Graceful fallback when model doesn't support effort parameter.
+- **Agent name in terminal title**: Update terminal title when running `--agent <name>` or subagents. Useful for multi-terminal workflows and CI/CD logs.
+- **`InstructionsLoaded` hook event**: Fires when CLAUDE.md / rules files load into context. Useful for validation hooks.
+- **Concise subagent reports**: Reduce token usage on multi-agent tasks with shorter subagent result summaries.
+- **`/resume` shows most recent prompt**: Resume picker shows last prompt instead of first for better session discovery.
+- **Skip compaction preamble recap**: Resuming after compaction skips the recap. Saves tokens, cleaner UX.
+- **Compaction preserves images for cache reuse**: Keep images in compaction summarizer request so prompt cache can be reused. Faster and cheaper compaction.
+- **Skip skill re-injection on `/resume`**: Don't re-inject skill listing when resuming sessions (~600 tokens saved per resume).
+- **MCP binary content to disk**: MCP tools returning PDFs/Office docs/audio save decoded bytes to disk with correct extension instead of dumping base64 into context.
 
 ## Decisions Log
 
