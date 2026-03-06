@@ -73,7 +73,7 @@
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
 - 4 retry integration tests (TCP test server, run with `cargo test -p chet-api --test retry_integration -- --ignored`)
-- 7 agent integration tests in cancellation_integration.rs (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e, run with `cargo test -p chet-core --test cancellation_integration -- --ignored`)
+- 8 agent integration tests in cancellation_integration.rs (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state, run with `cargo test -p chet-core --test cancellation_integration -- --ignored`)
 - 1 pipe mode integration test (ANSI-free output, run with `cargo test -p chet --test pipe_mode -- --ignored`)
 - 3 MCP end-to-end tests (Python MCP server, run with `cargo test -p chet-mcp --test mcp_e2e -- --ignored`)
 - 3 session round-trip tests (filesystem, run with `cargo test -p chet-session --test session_roundtrip -- --ignored`)
@@ -111,7 +111,7 @@ Bugs found and fixed:
 - ~~**Non-interactive pipe mode**~~: **DONE** — `test_pipe_mode_no_ansi` in `crates/chet-cli/tests/pipe_mode.rs`. SequencedMockProvider drives tool-use turn + markdown text response through full event callback pipeline with TTY=false. Captures stdout (plain markdown renderer) and stderr (style functions), asserts zero `\x1b` bytes. Run with `cargo test -p chet --test pipe_mode -- --ignored`.
 - ~~**Session round-trip**~~: **DONE** — 3 `#[ignore]` tests in `crates/chet-session/tests/session_roundtrip.rs`. Realistic 8-message session with Text, ToolUse, ToolResult content blocks, usage, metadata label, compaction count. Covers: complex round-trip, list/summary, and save-modify-save update. Run with `cargo test -p chet-session --test session_roundtrip -- --ignored`.
 - ~~**MCP end-to-end**~~: **DONE** — 3 `#[ignore]` tests in `crates/chet-mcp/tests/mcp_e2e.rs`. Inline Python script as minimal MCP server. Covers: connect + tool discovery, call_tool with echo result, unknown tool error. Run with `cargo test -p chet-mcp --test mcp_e2e -- --ignored`.
-- **Compaction state preservation**: Run agent, set label, compact, verify label and plan mode survive through compaction.
+- ~~**Compaction state preservation**~~: **DONE** — `test_compaction_preserves_label_and_plan_mode` in cancellation_integration.rs. Builds 14-message conversation, compacts with label, verifies label in summary, feeds compacted messages into read-only agent, verifies writable tool still blocked. Run with `cargo test -p chet-core --test cancellation_integration -- --ignored`.
 
 ## Product Direction
 

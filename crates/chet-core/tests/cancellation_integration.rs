@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use chet_core::{Agent, AgentEvent, SubagentTool};
 use chet_permissions::PermissionEngine;
+use chet_session::compact;
 use chet_tools::ToolRegistry;
 use chet_types::{
     ApiError, ChetError, ContentBlock, ContentDelta, CreateMessageRequest, CreateMessageResponse,
@@ -994,4 +995,135 @@ async fn test_cancel_before_start() {
         "should NOT have received any deltas"
     );
     assert!(!c.saw_done, "should NOT have seen Done event");
+}
+
+/// Compact a long conversation with a label, then run the agent in read-only mode
+/// on the compacted messages. Verifies:
+/// 1. The session label survives compaction (embedded in summary message)
+/// 2. Plan mode (read-only) still blocks non-read-only tools after compaction
+#[tokio::test]
+#[ignore]
+async fn test_compaction_preserves_label_and_plan_mode() {
+    // Build a conversation long enough for compaction (>= 12 messages)
+    let mut conversation: Vec<Message> = Vec::new();
+    for i in 0..7 {
+        conversation.push(Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text {
+                text: format!("Question {i}"),
+            }],
+        });
+        conversation.push(Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text {
+                text: format!("Answer {i}"),
+            }],
+        });
+    }
+    assert!(
+        conversation.len() >= 12,
+        "need >= 12 messages for compaction"
+    );
+
+    // Compact with a label
+    let label = "Fix auth bug";
+    let result = compact(&conversation, Some(label));
+    assert!(result.is_some(), "compaction should succeed");
+    let compacted = result.unwrap();
+
+    // --- Assertion 1: label survives in the summary message ---
+    let summary_text = match &compacted.new_messages[0].content[0] {
+        ContentBlock::Text { text } => text.clone(),
+        _ => panic!("expected text in summary"),
+    };
+    assert!(
+        summary_text.contains("[Session: Fix auth bug]"),
+        "summary should contain session label: {summary_text:?}"
+    );
+    assert!(
+        summary_text.contains("compacted"),
+        "summary should mention compaction: {summary_text:?}"
+    );
+
+    // --- Assertion 2: plan mode blocks tools after compaction ---
+    // Set up mock: API requests a writable tool, then responds with text after block
+    let call1_events = vec![
+        (message_start_event(), None),
+        (tool_use_block_start(0, "t1", "WriteTool"), None),
+        (input_json_delta(0, r#"{"msg":"should be blocked"}"#), None),
+        (content_block_stop(0), None),
+        (message_delta_tool_use(), None),
+        (message_stop(), None),
+    ];
+    let call2_events = vec![
+        (message_start_event(), None),
+        (text_block_start(0), None),
+        (text_delta(0, "OK, tool was blocked"), None),
+        (content_block_stop(0), None),
+        (message_delta_end_turn(), None),
+        (message_stop(), None),
+    ];
+
+    let provider: Arc<dyn Provider> =
+        Arc::new(SequencedMockProvider::new(vec![call1_events, call2_events]));
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(EchoTool::new_writable("WriteTool")));
+
+    let mut agent = make_agent(provider, registry);
+    agent.set_read_only_mode(true);
+
+    let cancel = CancellationToken::new();
+    let capture = Arc::new(Mutex::new(EventCapture::default()));
+
+    // Start from the compacted messages (summary + recent turns)
+    let mut messages = compacted.new_messages;
+
+    // Add a new user message to trigger the agent
+    messages.push(Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text {
+            text: "Write something for me".to_string(),
+        }],
+    });
+
+    let run_result = agent
+        .run(
+            &mut messages,
+            cancel,
+            EventCapture::callback(capture.clone()),
+        )
+        .await;
+
+    assert!(
+        run_result.is_ok(),
+        "agent should complete: {:?}",
+        run_result
+    );
+
+    let c = capture.lock().unwrap();
+    assert!(c.saw_done, "should have seen Done event");
+
+    // WriteTool should be blocked (plan mode)
+    assert_eq!(c.tool_blocked.len(), 1, "one tool should be blocked");
+    assert_eq!(c.tool_blocked[0].0, "WriteTool");
+    assert!(
+        c.tool_blocked[0].1.contains("read-only"),
+        "reason should mention read-only: {:?}",
+        c.tool_blocked[0].1
+    );
+    assert!(c.tool_ends.is_empty(), "tool should NOT have executed");
+
+    // Drop lock to inspect messages
+    drop(c);
+
+    // The summary message should still be at the start
+    let first_msg_text = match &messages[0].content[0] {
+        ContentBlock::Text { text } => text.clone(),
+        _ => panic!("expected text in first message"),
+    };
+    assert!(
+        first_msg_text.contains("[Session: Fix auth bug]"),
+        "label should still be in first message after agent run: {first_msg_text:?}"
+    );
 }
