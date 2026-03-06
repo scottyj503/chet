@@ -4,6 +4,7 @@
 //! env vars > project > global > defaults
 
 use chet_api::RetryConfig;
+use chet_types::Effort;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -24,6 +25,7 @@ pub struct ChetConfig {
     pub max_tokens: u32,
     pub api_base_url: String,
     pub thinking_budget: Option<u32>,
+    pub effort: Option<Effort>,
     pub retry: RetryConfig,
     pub config_dir: PathBuf,
     pub permission_rules: Vec<chet_permissions::PermissionRule>,
@@ -58,6 +60,7 @@ pub struct ApiSettings {
     pub max_tokens: Option<u32>,
     pub base_url: Option<String>,
     pub thinking_budget: Option<u32>,
+    pub effort: Option<Effort>,
     #[serde(default)]
     pub retry: RetrySettings,
 }
@@ -77,6 +80,7 @@ pub struct CliOverrides {
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
     pub thinking_budget: Option<u32>,
+    pub effort: Option<Effort>,
 }
 
 impl ChetConfig {
@@ -125,6 +129,9 @@ impl ChetConfig {
             .thinking_budget
             .or(global_settings.api.thinking_budget);
 
+        // Resolve effort: CLI > config > None
+        let effort = overrides.effort.or(global_settings.api.effort);
+
         // Resolve retry config: config > defaults
         let retry_defaults = RetryConfig::default();
         let retry = RetryConfig {
@@ -152,6 +159,7 @@ impl ChetConfig {
             max_tokens,
             api_base_url,
             thinking_budget,
+            effort,
             retry,
             permission_rules: global_settings.permissions.rules,
             hooks: global_settings.hooks,
@@ -314,6 +322,27 @@ timeout_ms = 60000
         let gh = &settings.mcp.servers["github"];
         assert_eq!(gh.env["GITHUB_TOKEN"], "ghp_xxxx");
         assert_eq!(gh.timeout_ms, 60000);
+    }
+
+    #[test]
+    fn test_settings_with_effort() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+effort = "high"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(settings.api.effort, Some(Effort::High));
+    }
+
+    #[test]
+    fn test_settings_effort_defaults_to_none() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(settings.api.effort, None);
     }
 
     #[test]

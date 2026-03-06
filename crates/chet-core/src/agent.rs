@@ -6,9 +6,9 @@ use chet_permissions::{
 };
 use chet_tools::ToolRegistry;
 use chet_types::{
-    CacheControl, ContentBlock, ContentDelta, CreateMessageRequest, Message, Role, StopReason,
-    StreamEvent, SystemContent, ThinkingConfig, ToolContext, ToolOutput, ToolResultContent, Usage,
-    provider::Provider,
+    CacheControl, ContentBlock, ContentDelta, CreateMessageRequest, Effort, Message, Role,
+    StopReason, StreamEvent, SystemContent, ThinkingConfig, ToolContext, ToolOutput,
+    ToolResultContent, Usage, provider::Provider,
 };
 use futures_util::StreamExt;
 use std::path::PathBuf;
@@ -54,6 +54,7 @@ pub struct Agent {
     max_tokens: u32,
     system_prompt: Option<String>,
     thinking_budget: Option<u32>,
+    effort: Option<Effort>,
     cwd: PathBuf,
     read_only_mode: bool,
 }
@@ -75,6 +76,7 @@ impl Agent {
             max_tokens,
             system_prompt: None,
             thinking_budget: None,
+            effort: None,
             cwd,
             read_only_mode: false,
         }
@@ -86,6 +88,14 @@ impl Agent {
 
     pub fn set_thinking_budget(&mut self, budget: u32) {
         self.thinking_budget = Some(budget);
+    }
+
+    pub fn set_effort(&mut self, effort: Option<Effort>) {
+        self.effort = effort;
+    }
+
+    pub fn effort(&self) -> Option<Effort> {
+        self.effort
     }
 
     pub fn set_read_only_mode(&mut self, enabled: bool) {
@@ -131,8 +141,11 @@ impl Agent {
                 if defs.is_empty() { None } else { Some(defs) }
             };
 
-            // Build thinking config if budget is set
-            let (thinking, temperature) = if let Some(budget) = self.thinking_budget {
+            // Resolve thinking budget: explicit budget > effort level > None
+            let effective_budget = self
+                .thinking_budget
+                .or_else(|| self.effort.map(|e| e.budget_tokens()));
+            let (thinking, temperature) = if let Some(budget) = effective_budget {
                 (
                     Some(ThinkingConfig {
                         thinking_type: "enabled".to_string(),

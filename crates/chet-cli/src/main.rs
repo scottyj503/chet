@@ -11,7 +11,7 @@ use chet_permissions::PermissionEngine;
 use chet_session::{ContextTracker, Session, SessionStore, compact};
 use chet_terminal::{LineEditor, ReadLineResult, SlashCommandCompleter, StreamingMarkdownRenderer};
 use chet_tools::ToolRegistry;
-use chet_types::{ContentBlock, Message, Role, Usage, provider::Provider};
+use chet_types::{ContentBlock, Effort, Message, Role, Usage, provider::Provider};
 use chrono::Utc;
 use clap::Parser;
 use std::io::{self, BufRead, Write};
@@ -44,6 +44,10 @@ struct Cli {
     /// Enable extended thinking with the given token budget
     #[arg(long)]
     thinking_budget: Option<u32>,
+
+    /// Set effort level for extended thinking (low, medium, high)
+    #[arg(long)]
+    effort: Option<Effort>,
 
     /// Enable verbose/debug logging
     #[arg(long)]
@@ -94,6 +98,7 @@ async fn main() -> Result<()> {
         model: cli.model,
         max_tokens: cli.max_tokens,
         thinking_budget: cli.thinking_budget,
+        effort: cli.effort,
     })
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -236,6 +241,9 @@ fn create_agent(
     if let Some(budget) = config.thinking_budget {
         agent.set_thinking_budget(budget);
     }
+    if let Some(effort) = config.effort {
+        agent.set_effort(Some(effort));
+    }
     agent
 }
 
@@ -274,6 +282,7 @@ async fn repl(
         "/exit",
         "/clear",
         "/cost",
+        "/effort",
         "/help",
         "/mcp",
         "/model",
@@ -284,9 +293,10 @@ async fn repl(
         "/plan",
     ])));
 
-    let thinking_info = match config.thinking_budget {
-        Some(budget) => format!(", thinking: {budget} tokens"),
-        None => String::new(),
+    let thinking_info = match (config.effort, config.thinking_budget) {
+        (_, Some(budget)) => format!(", thinking: {budget} tokens"),
+        (Some(effort), None) => format!(", effort: {effort}"),
+        (None, None) => String::new(),
     };
     let mcp_info = match &mcp_manager {
         Some(m) if m.client_count() > 0 => {
@@ -337,6 +347,26 @@ async fn repl(
                 agent.set_read_only_mode(true);
                 agent.set_system_prompt(plan_system_prompt(cwd));
                 eprintln!("{}", chet_terminal::style::plan_mode_banner(stderr_is_tty));
+            }
+            continue;
+        }
+
+        // Handle /effort inline (needs mutable access to agent)
+        if input.starts_with("/effort") {
+            let arg = input.strip_prefix("/effort").unwrap().trim();
+            if arg.is_empty() {
+                match agent.effort() {
+                    Some(e) => eprintln!("Current effort: {e}"),
+                    None => eprintln!("No effort level set (using default)."),
+                }
+            } else {
+                match arg.parse::<Effort>() {
+                    Ok(e) => {
+                        agent.set_effort(Some(e));
+                        eprintln!("Effort set to: {e}");
+                    }
+                    Err(msg) => eprintln!("{msg}"),
+                }
             }
             continue;
         }
@@ -626,7 +656,11 @@ async fn run_agent(
         cancel_for_signal.cancel();
     });
 
-    let spinner = chet_terminal::spinner::Spinner::new("Thinking...", !stderr_is_tty);
+    let thinking_msg = match agent.effort() {
+        Some(e) => format!("Thinking with {e} effort..."),
+        None => "Thinking...".to_string(),
+    };
+    let spinner = chet_terminal::spinner::Spinner::new(&thinking_msg, !stderr_is_tty);
     let mut first_text = true;
 
     let result = agent
@@ -684,7 +718,7 @@ async fn run_agent(
                         chet_terminal::style::tool_success(&name, &output, stderr_is_tty)
                     );
                 }
-                spinner.set_message("Thinking...");
+                spinner.set_message(&thinking_msg);
                 spinner.set_active(true);
                 first_text = true;
             }
@@ -788,6 +822,7 @@ fn print_usage(usage: &Usage) {
 fn print_help() {
     eprintln!("Available commands:");
     eprintln!("  /help     — Show this help");
+    eprintln!("  /effort   — Show or set effort level (low, medium, high)");
     eprintln!("  /plan     — Toggle plan mode (read-only exploration)");
     eprintln!("  /mcp      — Show connected MCP servers and tools");
     eprintln!("  /model    — Show current model");
@@ -800,6 +835,7 @@ fn print_help() {
     eprintln!("  /quit     — Exit");
     eprintln!();
     eprintln!("Flags:");
+    eprintln!("  --effort <level>       — Set effort level (low, medium, high)");
     eprintln!("  --thinking-budget <N>  — Enable extended thinking (token budget)");
 }
 

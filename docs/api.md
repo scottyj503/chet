@@ -221,6 +221,20 @@ Activated via `--thinking-budget <tokens>` CLI flag. When enabled:
 }
 ```
 
+### Effort Levels
+
+Effort levels are syntactic sugar over `budget_tokens`. Instead of specifying an exact token budget, you can set an effort level that maps to a predefined budget:
+
+| Effort | Budget Tokens |
+|--------|--------------|
+| `low` | 1,024 |
+| `medium` | 8,192 |
+| `high` | 32,768 |
+
+Activated via `--effort <level>` CLI flag, `effort = "high"` under `[api]` in config, or `/effort <level>` REPL command.
+
+**Precedence**: When both `--thinking-budget` and `--effort` are specified, the explicit budget wins (more specific overrides less specific).
+
 ## Response (SSE Stream)
 
 The API returns Server-Sent Events. Each event has an `event` type and JSON `data` payload.

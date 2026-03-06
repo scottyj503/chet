@@ -106,6 +106,50 @@ pub struct SystemContent {
     pub cache_control: Option<CacheControl>,
 }
 
+/// Effort level for extended thinking — syntactic sugar over `budget_tokens`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+}
+
+impl Effort {
+    /// Map effort level to a thinking token budget.
+    pub fn budget_tokens(self) -> u32 {
+        match self {
+            Effort::Low => 1024,
+            Effort::Medium => 8192,
+            Effort::High => 32768,
+        }
+    }
+}
+
+impl std::fmt::Display for Effort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Effort::Low => write!(f, "low"),
+            Effort::Medium => write!(f, "medium"),
+            Effort::High => write!(f, "high"),
+        }
+    }
+}
+
+impl std::str::FromStr for Effort {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "low" => Ok(Effort::Low),
+            "medium" | "med" => Ok(Effort::Medium),
+            "high" => Ok(Effort::High),
+            _ => Err(format!(
+                "unknown effort level: {s} (use low, medium, or high)"
+            )),
+        }
+    }
+}
+
 /// Configuration for extended thinking.
 #[derive(Debug, Clone, Serialize)]
 pub struct ThinkingConfig {
@@ -323,6 +367,38 @@ mod tests {
         assert_eq!(json["thinking"]["type"], "enabled");
         assert_eq!(json["thinking"]["budget_tokens"], 5000);
         assert_eq!(json["temperature"], 1.0);
+    }
+
+    #[test]
+    fn test_effort_from_str_all_variants() {
+        assert_eq!("low".parse::<Effort>().unwrap(), Effort::Low);
+        assert_eq!("medium".parse::<Effort>().unwrap(), Effort::Medium);
+        assert_eq!("med".parse::<Effort>().unwrap(), Effort::Medium);
+        assert_eq!("high".parse::<Effort>().unwrap(), Effort::High);
+        assert_eq!("HIGH".parse::<Effort>().unwrap(), Effort::High);
+        assert!("invalid".parse::<Effort>().is_err());
+    }
+
+    #[test]
+    fn test_effort_budget_tokens() {
+        assert_eq!(Effort::Low.budget_tokens(), 1024);
+        assert_eq!(Effort::Medium.budget_tokens(), 8192);
+        assert_eq!(Effort::High.budget_tokens(), 32768);
+    }
+
+    #[test]
+    fn test_effort_display() {
+        assert_eq!(Effort::Low.to_string(), "low");
+        assert_eq!(Effort::Medium.to_string(), "medium");
+        assert_eq!(Effort::High.to_string(), "high");
+    }
+
+    #[test]
+    fn test_effort_serde_roundtrip() {
+        let json = serde_json::to_string(&Effort::High).unwrap();
+        assert_eq!(json, "\"high\"");
+        let parsed: Effort = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, Effort::High);
     }
 
     #[test]
