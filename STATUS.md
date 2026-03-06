@@ -69,7 +69,7 @@
 
 ## Test Summary
 
-- 333 unit tests passing (34 api, 8 config, 16 core/agent+subagent+worktree, 21 tools, 31 permissions, 30 session, 20 types, 135 terminal, 9 cli, 29 mcp)
+- 339 unit tests passing (34 api, 10 config, 16 core/agent+subagent+worktree, 21 tools, 31 permissions, 30 session, 24 types, 135 terminal, 9 cli, 29 mcp)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
 - 4 retry integration tests (TCP test server, run with `cargo test -p chet-api --test retry_integration -- --ignored`)
@@ -137,7 +137,7 @@ Bugs found and fixed:
 - **`/copy` command**: Interactive picker to select and copy individual code blocks or full response from agent output.
 - **`/model` human-readable labels**: Show "Sonnet 4.5" instead of raw model IDs in model picker, with upgrade hints for newer versions.
 - **HTTP hooks**: Hooks can POST JSON to a URL and receive JSON back instead of running shell commands. Enables webhook integrations (Slack, CI status) without shell script wrappers.
-- **Effort levels**: Expose Anthropic API `effort` parameter (low/medium/high). Configurable default via `[api]` config, per-turn override via "ultrathink" keyword or `/effort high` command. Extends existing `--thinking-budget` flag. Show effort level in spinner (e.g., "with low effort"). Graceful fallback when model doesn't support effort parameter.
+- ~~**Effort levels**~~: **DONE** — `--effort` CLI flag (low/medium/high) maps to thinking budget_tokens (1024/8192/32768). `/effort` REPL command for per-turn changes. Effort shown in spinner and startup banner. Explicit `--thinking-budget` takes precedence.
 - **Agent name in terminal title**: Update terminal title when running `--agent <name>` or subagents. Useful for multi-terminal workflows and CI/CD logs.
 - **`InstructionsLoaded` hook event**: Fires when CLAUDE.md / rules files load into context. Useful for validation hooks.
 - **Concise subagent reports**: Reduce token usage on multi-agent tasks with shorter subagent result summaries.

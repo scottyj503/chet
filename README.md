@@ -13,7 +13,7 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 - **Permission system** — permit/block/prompt rules, before/after hooks, `--ludicrous` mode
 - **Session management** — auto-save, `--resume`, `/compact`, context tracking, auto-labeling
 - **Prompt caching** — automatic cache control on system prompt and tool definitions
-- **Extended thinking** — opt-in via `--thinking-budget`
+- **Extended thinking** — opt-in via `--thinking-budget` or `--effort` (low/medium/high)
 - **Streaming markdown** — bold, italic, headings, code blocks with syntax highlighting, lists, links, blockquotes, tables with box-drawing
 - **Tool output polish** — spinner during API/tool execution, styled tool icons (⚡✓✗⊘), Ctrl+C returns to prompt
 - **Subagents** — delegate complex sub-tasks to child agents that run silently and return results; supports `isolation: "worktree"` for parallel-safe execution
@@ -89,6 +89,7 @@ Options:
       --api-key <API_KEY>              API key (overrides ANTHROPIC_API_KEY)
       --resume <SESSION_ID>            Resume a previous session by ID or prefix
       --thinking-budget <TOKENS>       Enable extended thinking with token budget
+      --effort <LEVEL>                 Set effort level (low, medium, high)
       --worktree                       Run in an isolated git worktree
       --worktree-branch <BRANCH>       Branch name for the worktree (implies --worktree)
       --ludicrous                      Skip all permission checks
@@ -102,6 +103,7 @@ Options:
 | Command              | Description                              |
 |----------------------|------------------------------------------|
 | `/help`              | Show available commands                  |
+| `/effort [level]`    | Show or set effort level (low, medium, high) |
 | `/plan`              | Toggle plan mode (read-only exploration) |
 | `/mcp`               | Show connected MCP servers and tools     |
 | `/model`             | Show current model                       |
@@ -132,6 +134,7 @@ model = "claude-sonnet-4-5-20250929"
 max_tokens = 16384
 # api_key = "sk-ant-..."  # prefer ANTHROPIC_API_KEY env var
 # thinking_budget = 10000  # enable extended thinking
+# effort = "medium"        # effort level: low (1024), medium (8192), high (32768)
 
 # [api.retry]
 # max_retries = 2          # default: 2 (0 disables retries)
@@ -190,7 +193,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (333 tests — runs fast, no API key needed)
+# Unit tests (339 tests — runs fast, no API key needed)
 cargo test --workspace
 
 # Integration tests (6 SSE + 4 retry + 8 agent + 1 pipe mode + 3 MCP e2e + 3 session — on-demand)
