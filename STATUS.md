@@ -69,7 +69,7 @@
 
 ## Test Summary
 
-- 339 unit tests passing (34 api, 10 config, 16 core/agent+subagent+worktree, 21 tools, 31 permissions, 30 session, 24 types, 135 terminal, 9 cli, 29 mcp)
+- 357 unit tests passing (34 api, 10 config, 16 core/agent+subagent+worktree, 21 tools, 31 permissions, 30 session, 24 types, 153 terminal, 9 cli, 29 mcp)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
 - 4 retry integration tests (TCP test server, run with `cargo test -p chet-api --test retry_integration -- --ignored`)
@@ -125,7 +125,7 @@ Bugs found and fixed:
 - **ConfigChange hook event**: Fire hook when config files change during a session. Enables hot-reload without restart.
 - **File-not-found path suggestions**: When model drops the repo prefix from a path, suggest the corrected path. Saves wasted agent turns.
 - **Enhanced permission restriction reasons**: Show why a path or working directory is blocked, not just that it is.
-- **Status line**: Persistent terminal status bar showing model, tokens, cost, session ID, mode (plan/normal), active agent name (e.g., `subagent: code-quality-reviewer`), active MCP server+tool (e.g., `mcp: jira → search_issues`), LSP status, worktree info (name/path/branch). Structured JSON output for CI/CD log parsing.
+- ~~**Status line**~~: **DONE** — Persistent terminal status bar (DECSTBM scroll region) showing model, context usage, tokens, effort, session ID, plan mode badge, and active tool. Updates in real-time during agent execution. Suspend/resume around line editor. SIGWINCH resize handling. TTY-only (skipped in print mode).
 - **Memory management**: Clear internal caches after compaction, cap file history snapshots, free completed task output, strip heavy progress payloads during compaction for subagent sessions. Audit checklist: any cache (git root, JSON parsing, tool results, MCP resources) must have a bounded size or TTL to prevent unbounded growth in long sessions.
 - **`chet agents` CLI command**: List all configured agents/subagent definitions for discoverability.
 - **MCP reconnect resilience**: Handle `/mcp reconnect` with non-existent server name gracefully instead of freezing.
