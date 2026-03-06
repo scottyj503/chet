@@ -6,6 +6,8 @@
 //!
 //! Run with: `cargo test -p chet-mcp --test mcp_e2e -- --ignored`
 
+#![cfg(unix)]
+
 use chet_mcp::client::McpToolContent;
 use chet_mcp::{McpClient, McpServerConfig};
 use std::collections::HashMap;
@@ -91,7 +93,6 @@ fn server_config() -> McpServerConfig {
 }
 
 /// Full handshake: connect discovers the "echo" tool.
-#[cfg(unix)]
 #[tokio::test]
 #[ignore]
 async fn test_mcp_connect_and_discover_tools() {
@@ -110,7 +111,6 @@ async fn test_mcp_connect_and_discover_tools() {
 }
 
 /// Full pipeline: connect → call_tool → verify result → shutdown.
-#[cfg(unix)]
 #[tokio::test]
 #[ignore]
 async fn test_mcp_call_tool() {
@@ -137,7 +137,6 @@ async fn test_mcp_call_tool() {
 }
 
 /// Calling an unknown tool returns is_error=true.
-#[cfg(unix)]
 #[tokio::test]
 #[ignore]
 async fn test_mcp_call_unknown_tool() {
