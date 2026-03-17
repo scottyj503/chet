@@ -197,4 +197,52 @@ mod tests {
         assert_eq!(back.worktree_path.as_deref(), Some("/tmp/wt"));
         assert_eq!(back.worktree_source.as_deref(), Some("/repo"));
     }
+
+    #[test]
+    fn hook_event_serde_post_compact() {
+        let event = HookEvent::PostCompact;
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(json, "\"post_compact\"");
+        let back: HookEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, HookEvent::PostCompact);
+    }
+
+    #[test]
+    fn hook_input_post_compact_fields_serialize() {
+        let input = HookInput {
+            event: HookEvent::PostCompact,
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: None,
+            worktree_path: None,
+            worktree_source: None,
+            messages_removed: Some(12),
+            messages_remaining: Some(3),
+        };
+        let json = serde_json::to_value(&input).unwrap();
+        assert_eq!(json["event"], "post_compact");
+        assert_eq!(json["messages_removed"], 12);
+        assert_eq!(json["messages_remaining"], 3);
+        assert!(json.get("tool_name").is_none());
+        assert!(json.get("worktree_path").is_none());
+    }
+
+    #[test]
+    fn hook_input_compact_fields_skip_when_none() {
+        let input = HookInput {
+            event: HookEvent::BeforeTool,
+            tool_name: Some("Bash".to_string()),
+            tool_input: None,
+            tool_output: None,
+            is_error: None,
+            worktree_path: None,
+            worktree_source: None,
+            messages_removed: None,
+            messages_remaining: None,
+        };
+        let json = serde_json::to_value(&input).unwrap();
+        assert!(json.get("messages_removed").is_none());
+        assert!(json.get("messages_remaining").is_none());
+    }
 }

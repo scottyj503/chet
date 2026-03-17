@@ -377,6 +377,8 @@ mod tests {
         assert_eq!("high".parse::<Effort>().unwrap(), Effort::High);
         assert_eq!("HIGH".parse::<Effort>().unwrap(), Effort::High);
         assert!("invalid".parse::<Effort>().is_err());
+        // "auto" is handled by the REPL, not by Effort::from_str
+        assert!("auto".parse::<Effort>().is_err());
     }
 
     #[test]

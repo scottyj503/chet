@@ -354,4 +354,9 @@ model = "claude-opus-4-6"
         let settings: SettingsFile = toml::from_str(toml_str).unwrap();
         assert!(settings.mcp.servers.is_empty());
     }
+
+    #[test]
+    fn test_default_max_tokens_is_64k() {
+        assert_eq!(DEFAULT_MAX_TOKENS, 65536);
+    }
 }
