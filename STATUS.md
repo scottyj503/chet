@@ -69,7 +69,7 @@
 
 ## Test Summary
 
-- 357 unit tests passing (34 api, 10 config, 16 core/agent+subagent+worktree, 21 tools, 31 permissions, 30 session, 24 types, 153 terminal, 9 cli, 29 mcp)
+- 381 unit tests passing (34 api, 10 config, 16 core/agent+subagent+worktree, 29 tools, 31 permissions, 44 session, 24 types, 153 terminal, 11 cli, 29 mcp)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
 - 4 retry integration tests (TCP test server, run with `cargo test -p chet-api --test retry_integration -- --ignored`)

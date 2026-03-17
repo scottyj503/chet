@@ -7,20 +7,21 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 ## Features
 
 - **Streaming chat** — real-time SSE streaming from the Anthropic API
-- **Built-in tools** — Read, Write, Edit, Bash, Glob, Grep, Subagent
+- **Built-in tools** — Read, Write, Edit, Bash, Glob, Grep, Subagent, MemoryRead, MemoryWrite
 - **MCP servers** — connect external tool providers via JSON-RPC 2.0 over stdio (filesystem, GitHub, databases, etc.)
 - **Agent loop** — automatic tool use cycles (Claude calls tools, gets results, continues)
 - **Permission system** — permit/block/prompt rules, before/after hooks, `--ludicrous` mode
-- **Session management** — auto-save, `--resume`, `/compact`, context tracking, auto-labeling
+- **Session management** — auto-save, `--resume`, `-n`/`--name`, `/compact`, context tracking, auto-labeling
 - **Prompt caching** — automatic cache control on system prompt and tool definitions
-- **Extended thinking** — opt-in via `--thinking-budget` or `--effort` (low/medium/high)
+- **Extended thinking** — opt-in via `--thinking-budget` or `--effort` (low/medium/high/auto)
 - **Streaming markdown** — bold, italic, headings, code blocks with syntax highlighting, lists, links, blockquotes, tables with box-drawing
 - **Status line** — persistent bottom bar showing model, context usage, tokens, effort, session, plan mode, and active tool; updates in real-time during execution
 - **Tool output polish** — spinner during API/tool execution, styled tool icons (⚡✓✗⊘), Ctrl+C returns to prompt
 - **Subagents** — delegate complex sub-tasks to child agents that run silently and return results; supports `isolation: "worktree"` for parallel-safe execution
 - **Retry & backoff** — automatic retry with exponential backoff and jitter for 429/529/5xx/network errors, respects `Retry-After` header
 - **Provider abstraction** — `Provider` trait decouples the agent loop from any specific LLM API; ships with `AnthropicProvider`
-- **Plan mode** — `/plan` toggles read-only exploration mode (Read/Glob/Grep only), produces structured plans, approve/refine/discard workflow
+- **Plan mode** — `/plan` toggles read-only exploration mode (Read/Glob/Grep only), produces structured plans, approve/refine/discard workflow; `/plan fix the bug` enters with immediate prompt
+- **Persistent memory** — global and per-project memory files loaded into system prompt, writable via tools, survives across sessions; `/memory` command to view/edit/reset
 - **Line editor** — arrow keys, Home/End, word movement, history, tab completion for slash commands
 - **REPL + print mode** — interactive or single-shot (`chet -p "explain this code"`)
 - **Worktree isolation** — `--worktree` flag runs entire session in an isolated git worktree; subagents support `isolation: "worktree"` for conflict-free parallel execution
@@ -91,6 +92,7 @@ Options:
       --resume <SESSION_ID>            Resume a previous session by ID or prefix
       --thinking-budget <TOKENS>       Enable extended thinking with token budget
       --effort <LEVEL>                 Set effort level (low, medium, high)
+  -n, --name <NAME>                    Name for the session (overrides auto-labeling)
       --worktree                       Run in an isolated git worktree
       --worktree-branch <BRANCH>       Branch name for the worktree (implies --worktree)
       --ludicrous                      Skip all permission checks
@@ -104,8 +106,9 @@ Options:
 | Command              | Description                              |
 |----------------------|------------------------------------------|
 | `/help`              | Show available commands                  |
-| `/effort [level]`    | Show or set effort level (low, medium, high) |
-| `/plan`              | Toggle plan mode (read-only exploration) |
+| `/effort [level]`    | Show or set effort level (low, medium, high, auto) |
+| `/plan [description]` | Toggle plan mode; with description, starts immediately |
+| `/memory [subcommand]` | View/edit/reset persistent memory       |
 | `/mcp`               | Show connected MCP servers and tools     |
 | `/model`             | Show current model                       |
 | `/cost`              | Show token usage                         |
@@ -177,7 +180,7 @@ Chet is a Cargo workspace with focused crates:
 | `chet` | Binary: CLI entry, REPL, arg parsing |
 | `chet-core` | Agent loop, conversation orchestration (provider-agnostic) |
 | `chet-api` | Anthropic API client, SSE streaming, `AnthropicProvider` |
-| `chet-tools` | Tool trait + built-in tools (Read, Write, Edit, Bash, Glob, Grep); Subagent tool lives in chet-core |
+| `chet-tools` | Tool trait + built-in tools (Read, Write, Edit, Bash, Glob, Grep, MemoryRead, MemoryWrite); Subagent tool lives in chet-core |
 | `chet-config` | Multi-tier TOML settings |
 | `chet-types` | Shared types, error hierarchy, `Provider` trait, Unicode-safe string utils |
 | `chet-permissions` | Permission engine, rule matcher, hook runner |
@@ -194,7 +197,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (357 tests — runs fast, no API key needed)
+# Unit tests (381 tests — runs fast, no API key needed)
 cargo test --workspace
 
 # Integration tests (6 SSE + 4 retry + 8 agent + 1 pipe mode + 3 MCP e2e + 3 session — on-demand)
