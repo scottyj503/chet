@@ -148,7 +148,7 @@ Bugs found and fixed:
 - **MCP binary content to disk**: MCP tools returning PDFs/Office docs/audio save decoded bytes to disk with correct extension instead of dumping base64 into context.
 - **Increased output token limits**: Bump Opus 4.6 default max_tokens to 64k, upper bound to 128k (match CC v2.1.77).
 - ~~**`/effort auto`**~~: **DONE** — `/effort auto` resets effort to default (no explicit thinking budget). Help text and error messages updated.
-- **`-n` / `--name` session flag**: Name a session at startup via CLI instead of relying on auto-label.
+- ~~**`-n` / `--name` session flag**~~: **DONE** — `chet -n "my task"` sets session label at startup, overrides auto-label. Works with `--resume` too.
 - **`/plan` with description**: `/plan fix the auth bug` enters plan mode and immediately starts with the given prompt.
 - **Memory file timestamps**: Add last-modified timestamps to memory files for freshness reasoning by the model.
 - **`PostCompact` hook event**: Fire hook after compaction completes. Easy addition to hook system.

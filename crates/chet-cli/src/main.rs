@@ -67,6 +67,10 @@ struct Cli {
     /// Branch name for the worktree (implies --worktree)
     #[arg(long)]
     worktree_branch: Option<String>,
+
+    /// Name for the session (overrides auto-labeling)
+    #[arg(short = 'n', long)]
+    name: Option<String>,
 }
 
 #[tokio::main]
@@ -202,6 +206,7 @@ async fn main() -> Result<()> {
             &config,
             &effective_cwd,
             cli.resume,
+            cli.name,
             mcp_manager,
             stderr_is_tty,
             project_id,
@@ -280,6 +285,7 @@ async fn repl(
     config: &ChetConfig,
     cwd: &std::path::Path,
     resume_id: Option<String>,
+    session_name: Option<String>,
     mcp_manager: Option<McpManager>,
     stderr_is_tty: bool,
     project_id: Option<String>,
@@ -313,6 +319,11 @@ async fn repl(
         }
         None => Session::new(config.model.clone(), cwd.display().to_string()),
     };
+
+    // Apply --name flag (overrides auto-label, even on resumed sessions)
+    if let Some(name) = session_name {
+        session.metadata.label = Some(name);
+    }
 
     let mut editor = LineEditor::new(config.config_dir.join("history"));
     editor.set_completer(Box::new(SlashCommandCompleter::new(vec![
