@@ -147,7 +147,7 @@ Bugs found and fixed:
 - **Skip skill re-injection on `/resume`**: Don't re-inject skill listing when resuming sessions (~600 tokens saved per resume).
 - **MCP binary content to disk**: MCP tools returning PDFs/Office docs/audio save decoded bytes to disk with correct extension instead of dumping base64 into context.
 - **Increased output token limits**: Bump Opus 4.6 default max_tokens to 64k, upper bound to 128k (match CC v2.1.77).
-- **`/effort auto`**: Reset effort level to default (no explicit thinking budget). Trivial add to existing `/effort` command.
+- ~~**`/effort auto`**~~: **DONE** — `/effort auto` resets effort to default (no explicit thinking budget). Help text and error messages updated.
 - **`-n` / `--name` session flag**: Name a session at startup via CLI instead of relying on auto-label.
 - **`/plan` with description**: `/plan fix the auth bug` enters plan mode and immediately starts with the given prompt.
 - **Memory file timestamps**: Add last-modified timestamps to memory files for freshness reasoning by the model.

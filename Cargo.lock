@@ -346,6 +346,7 @@ dependencies = [
 name = "chet-tools"
 version = "0.1.0"
 dependencies = [
+ "chet-session",
  "chet-types",
  "globset",
  "grep-matcher",

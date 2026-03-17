@@ -8,7 +8,7 @@ use chet_config::{ChetConfig, CliOverrides};
 use chet_core::{Agent, AgentEvent, ManagedWorktree, SubagentTool};
 use chet_mcp::{McpManager, McpTool};
 use chet_permissions::PermissionEngine;
-use chet_session::{ContextTracker, Session, SessionStore, compact};
+use chet_session::{ContextTracker, MemoryManager, Session, SessionStore, compact};
 use chet_terminal::{
     LineEditor, ReadLineResult, SlashCommandCompleter, StatusLine, StatusLineData,
     StreamingMarkdownRenderer,
@@ -146,6 +146,14 @@ async fn main() -> Result<()> {
     // Start MCP servers if configured
     let mcp_manager = start_mcp_servers(&config).await;
 
+    // Compute project_id from original cwd (not worktree) so all worktrees share memory
+    let project_id: Option<String> = match chet_core::worktree::git_repo_root(&cwd).await {
+        Ok(ref root) => Some(MemoryManager::project_id(root)),
+        Err(_) => Some(MemoryManager::project_id(&cwd)),
+    };
+
+    let memory_manager = MemoryManager::new(config.config_dir.clone());
+
     let result = if let Some(prompt) = cli.print {
         // Print mode: single prompt, no session persistence
         let engine = Arc::new(if cli.ludicrous {
@@ -153,13 +161,16 @@ async fn main() -> Result<()> {
         } else {
             PermissionEngine::new(config.permission_rules.clone(), config.hooks.clone(), None)
         });
-        let agent = create_agent(
+        let memory_section = memory_manager.load_combined(project_id.as_deref()).await;
+        let mut agent = create_agent(
             Arc::clone(&provider),
             engine,
             &config,
             &effective_cwd,
             &mcp_manager,
+            project_id,
         );
+        agent.set_system_prompt(system_prompt(&effective_cwd, &memory_section));
         let mut messages = vec![user_message(&prompt)];
         let usage = run_agent(&agent, &mut messages, stdout_is_tty, stderr_is_tty, None).await?;
         print_usage(&usage);
@@ -193,6 +204,8 @@ async fn main() -> Result<()> {
             cli.resume,
             mcp_manager,
             stderr_is_tty,
+            project_id,
+            memory_manager,
         )
         .await
     };
@@ -214,6 +227,7 @@ fn create_agent(
     config: &ChetConfig,
     cwd: &std::path::Path,
     mcp_manager: &Option<McpManager>,
+    project_id: Option<String>,
 ) -> Agent {
     let mut registry = ToolRegistry::with_builtins();
     registry.register(Arc::new(SubagentTool::new(
@@ -222,6 +236,16 @@ fn create_agent(
         config.model.clone(),
         config.max_tokens,
         cwd.to_path_buf(),
+    )));
+
+    // Register memory tools
+    registry.register(Arc::new(chet_tools::MemoryReadTool::new(
+        config.config_dir.clone(),
+        project_id.clone(),
+    )));
+    registry.register(Arc::new(chet_tools::MemoryWriteTool::new(
+        config.config_dir.clone(),
+        project_id,
     )));
 
     // Register MCP tools
@@ -240,7 +264,6 @@ fn create_agent(
         config.max_tokens,
         cwd.to_path_buf(),
     );
-    agent.set_system_prompt(system_prompt(cwd));
     if let Some(budget) = config.thinking_budget {
         agent.set_thinking_budget(budget);
     }
@@ -250,6 +273,7 @@ fn create_agent(
     agent
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn repl(
     provider: Arc<dyn Provider>,
     permissions: Arc<PermissionEngine>,
@@ -258,13 +282,24 @@ async fn repl(
     resume_id: Option<String>,
     mcp_manager: Option<McpManager>,
     stderr_is_tty: bool,
+    project_id: Option<String>,
+    memory_manager: MemoryManager,
 ) -> Result<()> {
-    let mut agent = create_agent(provider, permissions, config, cwd, &mcp_manager);
+    let mut agent = create_agent(
+        provider,
+        permissions,
+        config,
+        cwd,
+        &mcp_manager,
+        project_id.clone(),
+    );
     let store = SessionStore::new(config.config_dir.clone())
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let context_tracker = ContextTracker::new(&config.model);
-    let system = system_prompt(cwd);
+    let mut memory_section = memory_manager.load_combined(project_id.as_deref()).await;
+    let mut system = system_prompt(cwd, &memory_section);
+    agent.set_system_prompt(system.clone());
 
     // Load or create session
     let mut session = match &resume_id {
@@ -288,6 +323,7 @@ async fn repl(
         "/effort",
         "/help",
         "/mcp",
+        "/memory",
         "/model",
         "/context",
         "/compact",
@@ -387,13 +423,13 @@ async fn repl(
                 // Exit plan mode
                 plan_mode = false;
                 agent.set_read_only_mode(false);
-                agent.set_system_prompt(system_prompt(cwd));
+                agent.set_system_prompt(system_prompt(cwd, &memory_section));
                 eprintln!("Exited plan mode.");
             } else {
                 // Enter plan mode
                 plan_mode = true;
                 agent.set_read_only_mode(true);
-                agent.set_system_prompt(plan_system_prompt(cwd));
+                agent.set_system_prompt(plan_system_prompt(cwd, &memory_section));
                 eprintln!("{}", chet_terminal::style::plan_mode_banner(stderr_is_tty));
             }
             if let Some(sl) = &status_line {
@@ -409,6 +445,12 @@ async fn repl(
                 match agent.effort() {
                     Some(e) => eprintln!("Current effort: {e}"),
                     None => eprintln!("No effort level set (using default)."),
+                }
+            } else if arg == "auto" {
+                agent.set_effort(None);
+                eprintln!("Effort reset to default (auto).");
+                if let Some(sl) = &status_line {
+                    sl.lock().unwrap().update_field(|d| d.effort = None);
                 }
             } else {
                 match arg.parse::<Effort>() {
@@ -433,6 +475,9 @@ async fn repl(
             &context_tracker,
             &system,
             &mcp_manager,
+            &memory_manager,
+            project_id.as_deref(),
+            &status_line,
         )
         .await
         {
@@ -495,7 +540,7 @@ async fn repl(
                         PlanApproval::Approve => {
                             plan_mode = false;
                             agent.set_read_only_mode(false);
-                            agent.set_system_prompt(system_prompt(cwd));
+                            agent.set_system_prompt(system_prompt(cwd, &memory_section));
                             eprintln!("Plan approved. Exiting plan mode.");
                         }
                         PlanApproval::Refine => {
@@ -505,7 +550,7 @@ async fn repl(
                             pop_last_turn(&mut session.messages);
                             plan_mode = false;
                             agent.set_read_only_mode(false);
-                            agent.set_system_prompt(system_prompt(cwd));
+                            agent.set_system_prompt(system_prompt(cwd, &memory_section));
                             eprintln!("Plan discarded. Exiting plan mode.");
                         }
                     }
@@ -517,6 +562,18 @@ async fn repl(
                 // Auto-save
                 if let Err(e) = store.save(&session).await {
                     eprintln!("Warning: failed to save session: {e}");
+                }
+
+                // Refresh memory if it changed (model may have called MemoryWrite)
+                let new_memory = memory_manager.load_combined(project_id.as_deref()).await;
+                if new_memory != memory_section {
+                    memory_section = new_memory;
+                    system = if plan_mode {
+                        plan_system_prompt(cwd, &memory_section)
+                    } else {
+                        system_prompt(cwd, &memory_section)
+                    };
+                    agent.set_system_prompt(system.clone());
                 }
 
                 // Update status line with latest context info
@@ -573,6 +630,7 @@ enum SlashResult {
     Unknown,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_slash_command(
     input: &str,
     session: &mut Session,
@@ -580,6 +638,9 @@ async fn handle_slash_command(
     context_tracker: &ContextTracker,
     system_prompt: &str,
     mcp_manager: &Option<McpManager>,
+    memory_manager: &MemoryManager,
+    project_id: Option<&str>,
+    status_line: &Option<Arc<Mutex<StatusLine>>>,
 ) -> Option<SlashResult> {
     if !input.starts_with('/') {
         return None;
@@ -607,6 +668,10 @@ async fn handle_slash_command(
         }
         "/mcp" => {
             handle_mcp_status(mcp_manager);
+            Some(SlashResult::Continue)
+        }
+        "/memory" => {
+            handle_memory_command(args, memory_manager, project_id, status_line).await;
             Some(SlashResult::Continue)
         }
         "/model" => {
@@ -926,6 +991,125 @@ fn handle_mcp_status(mcp_manager: &Option<McpManager>) {
     }
 }
 
+async fn handle_memory_command(
+    args: Option<&str>,
+    memory_manager: &MemoryManager,
+    project_id: Option<&str>,
+    status_line: &Option<Arc<Mutex<StatusLine>>>,
+) {
+    match args {
+        None => {
+            // /memory — show both
+            let global = memory_manager.load_global().await;
+            let project = match project_id {
+                Some(id) => memory_manager.load_project(id).await,
+                None => String::new(),
+            };
+            if global.is_empty() && project.is_empty() {
+                eprintln!("No memory saved yet.");
+                eprintln!("Tip: Ask the model to remember something, or use /memory edit.");
+                return;
+            }
+            if !global.is_empty() {
+                eprintln!("=== Global Memory ===");
+                eprintln!("{global}");
+            }
+            if !project.is_empty() {
+                eprintln!("=== Project Memory ===");
+                eprintln!("{project}");
+            }
+        }
+        Some(sub) if sub == "edit" || sub == "edit global" => {
+            let path = memory_manager.global_memory_path();
+            open_editor(&path, status_line).await;
+        }
+        Some("edit project") => {
+            if let Some(id) = project_id {
+                let path = memory_manager.project_memory_path(id);
+                open_editor(&path, status_line).await;
+            } else {
+                eprintln!("No project context available.");
+            }
+        }
+        Some("reset") => {
+            if let Err(e) = memory_manager.reset_global().await {
+                eprintln!("Failed to reset global memory: {e}");
+            }
+            if let Some(id) = project_id {
+                if let Err(e) = memory_manager.reset_project(id).await {
+                    eprintln!("Failed to reset project memory: {e}");
+                }
+            }
+            eprintln!("Memory cleared.");
+        }
+        Some("reset global") => {
+            if let Err(e) = memory_manager.reset_global().await {
+                eprintln!("Failed to reset global memory: {e}");
+            } else {
+                eprintln!("Global memory cleared.");
+            }
+        }
+        Some("reset project") => {
+            if let Some(id) = project_id {
+                if let Err(e) = memory_manager.reset_project(id).await {
+                    eprintln!("Failed to reset project memory: {e}");
+                } else {
+                    eprintln!("Project memory cleared.");
+                }
+            } else {
+                eprintln!("No project context available.");
+            }
+        }
+        Some(other) => {
+            eprintln!("Unknown /memory subcommand: {other}");
+            eprintln!("Usage: /memory [edit [global|project] | reset [global|project]]");
+        }
+    }
+}
+
+async fn open_editor(path: &std::path::Path, status_line: &Option<Arc<Mutex<StatusLine>>>) {
+    // Ensure parent directory exists
+    if let Some(parent) = path.parent() {
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            eprintln!("Failed to create directory: {e}");
+            return;
+        }
+    }
+    // Create the file if it doesn't exist
+    if !path.exists() {
+        if let Err(e) = tokio::fs::write(path, "").await {
+            eprintln!("Failed to create file: {e}");
+            return;
+        }
+    }
+
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+
+    // Suspend status line while editor is open
+    if let Some(sl) = status_line {
+        sl.lock().unwrap().suspend();
+    }
+
+    let status = std::process::Command::new(&editor).arg(path).status();
+
+    // Resume status line
+    if let Some(sl) = status_line {
+        sl.lock().unwrap().resume();
+    }
+
+    match status {
+        Ok(s) if s.success() => {
+            eprintln!("Memory file updated: {}", path.display());
+        }
+        Ok(s) => {
+            eprintln!("Editor exited with status: {s}");
+        }
+        Err(e) => {
+            eprintln!("Failed to open editor '{editor}': {e}");
+        }
+    }
+}
+
 fn user_message(text: &str) -> Message {
     Message {
         role: Role::User,
@@ -935,15 +1119,34 @@ fn user_message(text: &str) -> Message {
     }
 }
 
-fn system_prompt(cwd: &std::path::Path) -> String {
-    format!(
+fn append_memory_instructions(prompt: &mut String, memory: &str) {
+    prompt.push_str(
+        "\n\n# Persistent Memory\n\n\
+        You have access to persistent memory that survives across sessions via the \
+        MemoryRead and MemoryWrite tools.\n\
+        - Use MemoryRead to check existing memory before writing.\n\
+        - When writing, provide the complete updated content for the scope (global or project).\n\
+        - Use 'global' scope for cross-project preferences, 'project' for project-specific notes.\n\
+        - Save things worth remembering: user preferences, project conventions, key decisions.\n\
+        - When the user explicitly asks you to remember something, save it immediately.",
+    );
+    if !memory.is_empty() {
+        prompt.push_str("\n\n");
+        prompt.push_str(memory);
+    }
+}
+
+fn system_prompt(cwd: &std::path::Path, memory: &str) -> String {
+    let mut prompt = format!(
         "You are Chet, an AI coding assistant running in a terminal. \
          You help users with software engineering tasks by reading, writing, \
          and editing code files, running commands, and searching codebases.\n\n\
          Current working directory: {}\n\n\
          Use the available tools to assist the user. Be concise and helpful.",
         cwd.display()
-    )
+    );
+    append_memory_instructions(&mut prompt, memory);
+    prompt
 }
 
 fn print_usage(usage: &Usage) {
@@ -959,9 +1162,10 @@ fn print_usage(usage: &Usage) {
 fn print_help() {
     eprintln!("Available commands:");
     eprintln!("  /help     — Show this help");
-    eprintln!("  /effort   — Show or set effort level (low, medium, high)");
+    eprintln!("  /effort   — Show or set effort level (low, medium, high, auto)");
     eprintln!("  /plan     — Toggle plan mode (read-only exploration)");
     eprintln!("  /mcp      — Show connected MCP servers and tools");
+    eprintln!("  /memory   — View/edit/reset persistent memory");
     eprintln!("  /model    — Show current model");
     eprintln!("  /cost     — Show token usage");
     eprintln!("  /context  — Show detailed context window usage");
@@ -976,8 +1180,8 @@ fn print_help() {
     eprintln!("  --thinking-budget <N>  — Enable extended thinking (token budget)");
 }
 
-fn plan_system_prompt(cwd: &std::path::Path) -> String {
-    format!(
+fn plan_system_prompt(cwd: &std::path::Path, memory: &str) -> String {
+    let mut prompt = format!(
         "You are Chet, an AI coding assistant running in PLAN MODE.\n\n\
          Current working directory: {}\n\n\
          In plan mode, you can ONLY use read-only tools (Read, Glob, Grep) to explore the codebase.\n\
@@ -993,7 +1197,9 @@ fn plan_system_prompt(cwd: &std::path::Path) -> String {
          - Key considerations or risks\n\n\
          Be thorough in exploration but concise in your plan.",
         cwd.display()
-    )
+    );
+    append_memory_instructions(&mut prompt, memory);
+    prompt
 }
 
 /// Extract text content from the last assistant message.
@@ -1203,13 +1409,31 @@ mod tests {
 
     #[test]
     fn plan_system_prompt_contains_key_directives() {
-        let prompt = plan_system_prompt(std::path::Path::new("/tmp"));
+        let prompt = plan_system_prompt(std::path::Path::new("/tmp"), "");
         assert!(prompt.contains("PLAN MODE"));
         assert!(prompt.contains("read-only"));
         assert!(prompt.contains("/tmp"));
         assert!(prompt.contains("Read"));
         assert!(prompt.contains("Glob"));
         assert!(prompt.contains("Grep"));
+    }
+
+    #[test]
+    fn system_prompt_includes_memory() {
+        let prompt = system_prompt(std::path::Path::new("/tmp"), "# Memory\n\nTest memory");
+        assert!(prompt.contains("Test memory"));
+        assert!(prompt.contains("MemoryRead"));
+        assert!(prompt.contains("MemoryWrite"));
+    }
+
+    #[test]
+    fn system_prompt_empty_memory() {
+        let prompt = system_prompt(std::path::Path::new("/tmp"), "");
+        // Should still have memory tool instructions
+        assert!(prompt.contains("MemoryRead"));
+        assert!(prompt.contains("MemoryWrite"));
+        // But no memory content section
+        assert!(!prompt.contains("# Memory"));
     }
 
     #[test]

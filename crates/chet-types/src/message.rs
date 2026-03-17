@@ -144,7 +144,7 @@ impl std::str::FromStr for Effort {
             "medium" | "med" => Ok(Effort::Medium),
             "high" => Ok(Effort::High),
             _ => Err(format!(
-                "unknown effort level: {s} (use low, medium, or high)"
+                "unknown effort level: {s} (use low, medium, high, or auto)"
             )),
         }
     }
