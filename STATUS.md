@@ -153,7 +153,7 @@ Bugs found and fixed:
 - ~~**Memory file timestamps**~~: **DONE** — Memory section headings include "(last updated: YYYY-MM-DD HH:MM UTC)" from file mtime. Model can reason about freshness.
 - ~~**`PostCompact` hook event**~~: **DONE** — `post_compact` hook fires after `/compact` with `messages_removed` and `messages_remaining` in the JSON payload.
 - ~~**`/context` actionable suggestions**~~: **DONE** — `/context` now suggests `/compact` at >50%/>80% usage and warns about large system prompts (>20% of context window) with `/memory reset` hint.
-- **Parallel tool failure isolation**: Failed Read/Glob shouldn't cancel sibling parallel tool calls. Only Bash errors cascade.
+- ~~**Parallel tool failure isolation**~~: **DONE** — Read-only tools (Read, Glob, Grep, MemoryRead) now execute in parallel via `join_all`. Mutating tools run sequentially after. Failures produce per-tool error results without affecting siblings. Permission checks and hooks remain sequential (may prompt user).
 - **Strip progress messages during compaction**: Prevent memory growth from progress payloads surviving compaction in long sessions.
 - **Background bash output kill limit**: Kill background bash tasks if output exceeds 5GB to prevent runaway processes from filling disk.
 - **Session auto-naming from plan content**: When user accepts a plan, use the plan's content/heading for session name.

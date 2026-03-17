@@ -332,9 +332,19 @@ impl Agent {
                 sandboxed: false,
             };
 
-            let mut tool_results = Vec::new();
-            for (tool_id, tool_name, tool_input) in &tool_uses {
+            // Phase 1: Permission checks, hooks, ToolStart events (sequential — may prompt user)
+            // Builds a list of permitted tools to execute and pre-populated results for blocked ones.
+            let mut tool_results: Vec<Option<ContentBlock>> = vec![None; tool_uses.len()];
+            let mut permitted_tools: Vec<(usize, String, String, serde_json::Value, bool)> =
+                Vec::new(); // (index, id, name, input, is_read_only)
+
+            for (i, (tool_id, tool_name, tool_input)) in tool_uses.iter().enumerate() {
                 let is_read_only = self.registry.is_read_only(tool_name).unwrap_or(false);
+
+                on_event(AgentEvent::ToolStart {
+                    name: tool_name.clone(),
+                    input: truncate_for_display(&tool_input.to_string(), 200),
+                });
 
                 // Safety net: block non-read-only tools in plan mode
                 if self.read_only_mode && !is_read_only {
@@ -342,7 +352,7 @@ impl Agent {
                         name: tool_name.clone(),
                         reason: "plan mode (read-only)".to_string(),
                     });
-                    tool_results.push(ContentBlock::ToolResult {
+                    tool_results[i] = Some(ContentBlock::ToolResult {
                         tool_use_id: tool_id.clone(),
                         content: vec![ToolResultContent::Text {
                             text: "Blocked: plan mode only allows read-only tools".to_string(),
@@ -362,7 +372,7 @@ impl Agent {
                             name: tool_name.clone(),
                             reason: reason.clone(),
                         });
-                        tool_results.push(ContentBlock::ToolResult {
+                        tool_results[i] = Some(ContentBlock::ToolResult {
                             tool_use_id: tool_id.clone(),
                             content: vec![ToolResultContent::Text {
                                 text: format!("Permission denied: {reason}"),
@@ -391,7 +401,7 @@ impl Agent {
                                     name: tool_name.clone(),
                                     reason: "Denied by user".to_string(),
                                 });
-                                tool_results.push(ContentBlock::ToolResult {
+                                tool_results[i] = Some(ContentBlock::ToolResult {
                                     tool_use_id: tool_id.clone(),
                                     content: vec![ToolResultContent::Text {
                                         text: "Permission denied by user".to_string(),
@@ -429,7 +439,7 @@ impl Agent {
                         name: tool_name.clone(),
                         reason: reason.clone(),
                     });
-                    tool_results.push(ContentBlock::ToolResult {
+                    tool_results[i] = Some(ContentBlock::ToolResult {
                         tool_use_id: tool_id.clone(),
                         content: vec![ToolResultContent::Text {
                             text: format!("Blocked by hook: {reason}"),
@@ -439,11 +449,33 @@ impl Agent {
                     continue;
                 }
 
-                // 3. Execute the tool (with cancellation support)
-                let tool_result = tokio::select! {
-                    _ = cancel.cancelled() => {
+                permitted_tools.push((
+                    i,
+                    tool_id.clone(),
+                    tool_name.clone(),
+                    tool_input.clone(),
+                    is_read_only,
+                ));
+            }
+
+            // Phase 2: Execute permitted tools
+            // Read-only tools run in parallel; mutating tools run sequentially after.
+            let (read_only, mutating): (Vec<_>, Vec<_>) =
+                permitted_tools.into_iter().partition(|t| t.4);
+
+            // Execute read-only tools in parallel
+            if !read_only.is_empty() {
+                let futures: Vec<_> = read_only
+                    .iter()
+                    .map(|(_, _, name, input, _)| {
+                        self.registry.execute(name, input.clone(), ctx.clone())
+                    })
+                    .collect();
+
+                let cancel_ref = &cancel;
+                let results = tokio::select! {
+                    _ = cancel_ref.cancelled() => {
                         on_event(AgentEvent::Cancelled);
-                        // Pop the assistant message — tool results haven't been pushed yet
                         if let Some(last) = messages.last() {
                             if last.role == Role::Assistant {
                                 messages.pop();
@@ -451,69 +483,62 @@ impl Agent {
                         }
                         return Err(chet_types::ChetError::Cancelled);
                     }
-                    result = self.registry.execute(tool_name, tool_input.clone(), ctx.clone()) => result
+                    results = futures_util::future::join_all(futures) => results
+                };
+
+                for (result, (idx, tool_id, tool_name, tool_input, _)) in
+                    results.into_iter().zip(read_only)
+                {
+                    let output = match result {
+                        Ok(output) => output,
+                        Err(e) => ToolOutput::error(e.to_string()),
+                    };
+                    tool_results[idx] = Some(
+                        self.finalize_tool_result(
+                            &tool_id,
+                            &tool_name,
+                            &tool_input,
+                            output,
+                            &mut on_event,
+                        )
+                        .await,
+                    );
+                }
+            }
+
+            // Execute mutating tools sequentially
+            for (idx, tool_id, tool_name, tool_input, _) in mutating {
+                let tool_result = tokio::select! {
+                    _ = cancel.cancelled() => {
+                        on_event(AgentEvent::Cancelled);
+                        if let Some(last) = messages.last() {
+                            if last.role == Role::Assistant {
+                                messages.pop();
+                            }
+                        }
+                        return Err(chet_types::ChetError::Cancelled);
+                    }
+                    result = self.registry.execute(&tool_name, tool_input.clone(), ctx.clone()) => result
                 };
 
                 let output = match tool_result {
                     Ok(output) => output,
                     Err(e) => ToolOutput::error(e.to_string()),
                 };
-
-                let output_text = output
-                    .content
-                    .iter()
-                    .filter_map(|c| match c {
-                        chet_types::ToolOutputContent::Text { text } => Some(text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                on_event(AgentEvent::ToolEnd {
-                    name: tool_name.clone(),
-                    output: truncate_for_display(&output_text, 200),
-                    is_error: output.is_error,
-                });
-
-                // 4. Run after_tool hooks (log-only, don't undo)
-                let after_hook_input = HookInput {
-                    event: HookEvent::AfterTool,
-                    tool_name: Some(tool_name.clone()),
-                    tool_input: Some(tool_input.clone()),
-                    tool_output: Some(truncate_for_display(&output_text, 1000)),
-                    is_error: Some(output.is_error),
-                    worktree_path: None,
-                    worktree_source: None,
-                    messages_removed: None,
-                    messages_remaining: None,
-                };
-                if let Err(msg) = self
-                    .permissions
-                    .run_hooks(&HookEvent::AfterTool, &after_hook_input)
-                    .await
-                {
-                    tracing::warn!("after_tool hook error: {msg}");
-                }
-
-                let content = output
-                    .content
-                    .into_iter()
-                    .map(|c| match c {
-                        chet_types::ToolOutputContent::Text { text } => {
-                            ToolResultContent::Text { text }
-                        }
-                        chet_types::ToolOutputContent::Image { source } => {
-                            ToolResultContent::Image { source }
-                        }
-                    })
-                    .collect();
-
-                tool_results.push(ContentBlock::ToolResult {
-                    tool_use_id: tool_id.clone(),
-                    content,
-                    is_error: if output.is_error { Some(true) } else { None },
-                });
+                tool_results[idx] = Some(
+                    self.finalize_tool_result(
+                        &tool_id,
+                        &tool_name,
+                        &tool_input,
+                        output,
+                        &mut on_event,
+                    )
+                    .await,
+                );
             }
+
+            // Collect results in original order (all slots should be filled)
+            let tool_results: Vec<ContentBlock> = tool_results.into_iter().flatten().collect();
 
             // Append tool results as a user message
             messages.push(Message {
@@ -526,6 +551,69 @@ impl Agent {
             "Maximum tool-use loops reached".to_string(),
         ));
         Ok(total_usage)
+    }
+
+    /// Emit ToolEnd event, run after_tool hooks, and build the ToolResult ContentBlock.
+    async fn finalize_tool_result(
+        &self,
+        tool_id: &str,
+        tool_name: &str,
+        tool_input: &serde_json::Value,
+        output: ToolOutput,
+        on_event: &mut impl FnMut(AgentEvent),
+    ) -> ContentBlock {
+        let output_text = output
+            .content
+            .iter()
+            .filter_map(|c| match c {
+                chet_types::ToolOutputContent::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        on_event(AgentEvent::ToolEnd {
+            name: tool_name.to_string(),
+            output: truncate_for_display(&output_text, 200),
+            is_error: output.is_error,
+        });
+
+        // Run after_tool hooks (log-only)
+        let after_hook_input = HookInput {
+            event: HookEvent::AfterTool,
+            tool_name: Some(tool_name.to_string()),
+            tool_input: Some(tool_input.clone()),
+            tool_output: Some(truncate_for_display(&output_text, 1000)),
+            is_error: Some(output.is_error),
+            worktree_path: None,
+            worktree_source: None,
+            messages_removed: None,
+            messages_remaining: None,
+        };
+        if let Err(msg) = self
+            .permissions
+            .run_hooks(&HookEvent::AfterTool, &after_hook_input)
+            .await
+        {
+            tracing::warn!("after_tool hook error: {msg}");
+        }
+
+        let content = output
+            .content
+            .into_iter()
+            .map(|c| match c {
+                chet_types::ToolOutputContent::Text { text } => ToolResultContent::Text { text },
+                chet_types::ToolOutputContent::Image { source } => {
+                    ToolResultContent::Image { source }
+                }
+            })
+            .collect();
+
+        ContentBlock::ToolResult {
+            tool_use_id: tool_id.to_string(),
+            content,
+            is_error: if output.is_error { Some(true) } else { None },
+        }
     }
 }
 
