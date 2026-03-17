@@ -7,12 +7,15 @@ use std::path::{Path, PathBuf};
 
 /// Manages persistent memory files (global + per-project).
 pub struct MemoryManager {
-    config_dir: PathBuf,
+    memory_dir: PathBuf,
 }
 
 impl MemoryManager {
-    pub fn new(config_dir: PathBuf) -> Self {
-        Self { config_dir }
+    /// Create a new MemoryManager with the given memory directory.
+    /// The directory should be the resolved memory path (e.g. `~/.chet/memory/`
+    /// or a custom path from the `memory_dir` config setting).
+    pub fn new(memory_dir: PathBuf) -> Self {
+        Self { memory_dir }
     }
 
     /// Compute a deterministic 16-char hex project ID from a path.
@@ -24,13 +27,12 @@ impl MemoryManager {
 
     /// Path to the global memory file.
     pub fn global_memory_path(&self) -> PathBuf {
-        self.config_dir.join("memory").join("MEMORY.md")
+        self.memory_dir.join("MEMORY.md")
     }
 
     /// Path to the project-specific memory file.
     pub fn project_memory_path(&self, project_id: &str) -> PathBuf {
-        self.config_dir
-            .join("memory")
+        self.memory_dir
             .join("projects")
             .join(format!("{project_id}.md"))
     }

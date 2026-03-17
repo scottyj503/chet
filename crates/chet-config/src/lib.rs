@@ -28,6 +28,8 @@ pub struct ChetConfig {
     pub effort: Option<Effort>,
     pub retry: RetryConfig,
     pub config_dir: PathBuf,
+    /// Directory for persistent memory files. Defaults to `<config_dir>/memory/`.
+    pub memory_dir: PathBuf,
     pub permission_rules: Vec<chet_permissions::PermissionRule>,
     pub hooks: Vec<chet_permissions::HookConfig>,
     pub mcp: chet_mcp::McpConfig,
@@ -44,6 +46,8 @@ pub struct SettingsFile {
     pub hooks: Vec<chet_permissions::HookConfig>,
     #[serde(default)]
     pub mcp: chet_mcp::McpConfig,
+    /// Custom directory for persistent memory files (default: `<config_dir>/memory/`).
+    pub memory_dir: Option<String>,
 }
 
 /// Permission rules section of the config file.
@@ -153,6 +157,11 @@ impl ChetConfig {
             backoff_factor: retry_defaults.backoff_factor,
         };
 
+        let memory_dir = match global_settings.memory_dir {
+            Some(ref dir) => PathBuf::from(dir),
+            None => config_dir.join("memory"),
+        };
+
         Ok(ChetConfig {
             api_key,
             model,
@@ -165,6 +174,7 @@ impl ChetConfig {
             hooks: global_settings.hooks,
             mcp: global_settings.mcp,
             config_dir,
+            memory_dir,
         })
     }
 }
@@ -358,5 +368,27 @@ model = "claude-opus-4-6"
     #[test]
     fn test_default_max_tokens_is_64k() {
         assert_eq!(DEFAULT_MAX_TOKENS, 65536);
+    }
+
+    #[test]
+    fn test_settings_with_memory_dir() {
+        let toml_str = r#"
+memory_dir = "/custom/memory/path"
+
+[api]
+model = "claude-opus-4-6"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(settings.memory_dir.as_deref(), Some("/custom/memory/path"));
+    }
+
+    #[test]
+    fn test_settings_memory_dir_defaults_to_none() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert!(settings.memory_dir.is_none());
     }
 }

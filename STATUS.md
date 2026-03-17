@@ -152,7 +152,7 @@ Bugs found and fixed:
 - ~~**`/plan` with description**~~: **DONE** — `/plan fix the auth bug` enters plan mode and immediately sends the description as a message. Already in plan mode? Just sends the message.
 - ~~**Memory file timestamps**~~: **DONE** — Memory section headings include "(last updated: YYYY-MM-DD HH:MM UTC)" from file mtime. Model can reason about freshness.
 - ~~**`PostCompact` hook event**~~: **DONE** — `post_compact` hook fires after `/compact` with `messages_removed` and `messages_remaining` in the JSON payload.
-- **`/context` actionable suggestions**: Identify context-heavy tools, memory bloat, and capacity warnings with optimization tips. Current `/context` just shows numbers.
+- ~~**`/context` actionable suggestions**~~: **DONE** — `/context` now suggests `/compact` at >50%/>80% usage and warns about large system prompts (>20% of context window) with `/memory reset` hint.
 - **Parallel tool failure isolation**: Failed Read/Glob shouldn't cancel sibling parallel tool calls. Only Bash errors cascade.
 - **Strip progress messages during compaction**: Prevent memory growth from progress payloads surviving compaction in long sessions.
 - **Background bash output kill limit**: Kill background bash tasks if output exceeds 5GB to prevent runaway processes from filling disk.
@@ -161,7 +161,7 @@ Bugs found and fixed:
 - **`allowRead` sandbox setting**: Re-allow read access within `denyRead` regions for fine-grained sandbox control.
 - **`ExitWorktree` tool**: Allow leaving a worktree session from within (counterpart to `EnterWorktree`).
 - **Auto-compaction circuit breaker**: If auto-compaction is added, stop retrying after 3 consecutive failures.
-- **`autoMemoryDirectory` setting**: Configurable memory directory path instead of hardcoded `~/.chet/memory/`.
+- ~~**`autoMemoryDirectory` setting**~~: **DONE** — `memory_dir` in config.toml overrides default `~/.chet/memory/`. Resolved in `ChetConfig`, flows through `MemoryManager` and both memory tools.
 - **Token estimation audit**: Audit `chars/4` heuristic — CC v2.1.75 found thinking + tool_use blocks were over-counted, causing premature compaction.
 
 ## Decisions Log

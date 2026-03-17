@@ -7,14 +7,14 @@ use std::path::PathBuf;
 
 /// Tool for writing to persistent memory (global or project).
 pub struct MemoryWriteTool {
-    config_dir: PathBuf,
+    memory_dir: PathBuf,
     project_id: Option<String>,
 }
 
 impl MemoryWriteTool {
-    pub fn new(config_dir: PathBuf, project_id: Option<String>) -> Self {
+    pub fn new(memory_dir: PathBuf, project_id: Option<String>) -> Self {
         Self {
-            config_dir,
+            memory_dir,
             project_id,
         }
     }
@@ -75,7 +75,7 @@ impl Tool for MemoryWriteTool {
                     message: e.to_string(),
                 })?;
 
-            let mgr = MemoryManager::new(self.config_dir.clone());
+            let mgr = MemoryManager::new(self.memory_dir.clone());
             let bytes = input.content.len();
 
             match input.scope.as_str() {

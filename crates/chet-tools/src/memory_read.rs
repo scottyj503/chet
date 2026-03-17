@@ -6,14 +6,14 @@ use std::path::PathBuf;
 
 /// Tool for reading persistent memory (global + project).
 pub struct MemoryReadTool {
-    config_dir: PathBuf,
+    memory_dir: PathBuf,
     project_id: Option<String>,
 }
 
 impl MemoryReadTool {
-    pub fn new(config_dir: PathBuf, project_id: Option<String>) -> Self {
+    pub fn new(memory_dir: PathBuf, project_id: Option<String>) -> Self {
         Self {
-            config_dir,
+            memory_dir,
             project_id,
         }
     }
@@ -50,7 +50,7 @@ impl Tool for MemoryReadTool {
         Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>,
     > {
         Box::pin(async move {
-            let mgr = MemoryManager::new(self.config_dir.clone());
+            let mgr = MemoryManager::new(self.memory_dir.clone());
             let combined = mgr.load_combined(self.project_id.as_deref()).await;
             if combined.is_empty() {
                 Ok(ToolOutput::text("No memory saved yet."))

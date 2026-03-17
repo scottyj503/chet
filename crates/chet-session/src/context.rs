@@ -89,14 +89,14 @@ impl ContextTracker {
         )
     }
 
-    /// Format a detailed multi-line context breakdown.
+    /// Format a detailed multi-line context breakdown with actionable suggestions.
     pub fn format_detailed(&self, info: &ContextInfo) -> String {
         let mut lines = Vec::new();
         let est_k = info.estimated_tokens as f64 / 1000.0;
         let win_k = info.context_window as f64 / 1000.0;
+        let pct = info.usage_percent();
         lines.push(format!(
-            "Context window: {est_k:.1}k / {win_k:.0}k tokens ({:.1}%)",
-            info.usage_percent()
+            "Context window: {est_k:.1}k / {win_k:.0}k tokens ({pct:.1}%)",
         ));
         lines.push(format!("  System:    ~{} tokens", info.system_tokens));
         lines.push(format!("  User:      ~{} tokens", info.user_tokens));
@@ -107,6 +107,31 @@ impl ContextTracker {
                 info.last_turn_input_tokens, info.last_turn_output_tokens
             ));
         }
+
+        // Actionable suggestions
+        if pct > 80.0 {
+            lines.push(String::new());
+            lines.push("Suggestions:".to_string());
+            lines.push(
+                "  - Run /compact to archive old messages and free context space".to_string(),
+            );
+        } else if pct > 50.0 {
+            lines.push(String::new());
+            lines.push("Suggestions:".to_string());
+            lines.push(
+                "  - Consider /compact if responses seem to lose earlier context".to_string(),
+            );
+        }
+        if info.system_tokens > info.context_window / 5 {
+            if !lines.last().is_some_and(|l| l.starts_with("  - ")) {
+                lines.push(String::new());
+                lines.push("Suggestions:".to_string());
+            }
+            lines.push(
+                "  - System prompt is large; trim memory with /memory reset if stale".to_string(),
+            );
+        }
+
         lines.join("\n")
     }
 }
@@ -250,5 +275,56 @@ mod tests {
         let info = tracker.estimate(&msgs, None);
         assert!(info.last_turn_input_tokens > 0);
         assert!(info.last_turn_output_tokens > 0);
+    }
+
+    #[test]
+    fn format_detailed_suggests_compact_at_high_usage() {
+        let tracker = ContextTracker::new("claude-sonnet-4-5-20250929");
+        // Build info manually to simulate >80% usage
+        let info = ContextInfo {
+            estimated_tokens: 170_000,
+            context_window: 200_000,
+            user_tokens: 80_000,
+            assistant_tokens: 80_000,
+            system_tokens: 10_000,
+            last_turn_input_tokens: 0,
+            last_turn_output_tokens: 0,
+        };
+        let output = tracker.format_detailed(&info);
+        assert!(output.contains("/compact"));
+        assert!(output.contains("Suggestions:"));
+    }
+
+    #[test]
+    fn format_detailed_no_suggestions_at_low_usage() {
+        let tracker = ContextTracker::new("claude-sonnet-4-5-20250929");
+        let info = ContextInfo {
+            estimated_tokens: 5_000,
+            context_window: 200_000,
+            user_tokens: 2_000,
+            assistant_tokens: 2_000,
+            system_tokens: 1_000,
+            last_turn_input_tokens: 0,
+            last_turn_output_tokens: 0,
+        };
+        let output = tracker.format_detailed(&info);
+        assert!(!output.contains("Suggestions:"));
+    }
+
+    #[test]
+    fn format_detailed_warns_large_system_prompt() {
+        let tracker = ContextTracker::new("claude-sonnet-4-5-20250929");
+        // system_tokens > context_window / 5 = 40k
+        let info = ContextInfo {
+            estimated_tokens: 60_000,
+            context_window: 200_000,
+            user_tokens: 10_000,
+            assistant_tokens: 10_000,
+            system_tokens: 41_000,
+            last_turn_input_tokens: 0,
+            last_turn_output_tokens: 0,
+        };
+        let output = tracker.format_detailed(&info);
+        assert!(output.contains("/memory reset"));
     }
 }

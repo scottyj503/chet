@@ -156,7 +156,7 @@ async fn main() -> Result<()> {
         Err(_) => Some(MemoryManager::project_id(&cwd)),
     };
 
-    let memory_manager = MemoryManager::new(config.config_dir.clone());
+    let memory_manager = MemoryManager::new(config.memory_dir.clone());
 
     let result = if let Some(prompt) = cli.print {
         // Print mode: single prompt, no session persistence
@@ -245,11 +245,11 @@ fn create_agent(
 
     // Register memory tools
     registry.register(Arc::new(chet_tools::MemoryReadTool::new(
-        config.config_dir.clone(),
+        config.memory_dir.clone(),
         project_id.clone(),
     )));
     registry.register(Arc::new(chet_tools::MemoryWriteTool::new(
-        config.config_dir.clone(),
+        config.memory_dir.clone(),
         project_id,
     )));
 
