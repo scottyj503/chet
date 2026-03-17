@@ -221,6 +221,50 @@ impl Tool for EchoTool {
     }
 }
 
+/// A read-only tool that always fails with an error.
+struct FailingTool {
+    tool_name: String,
+}
+
+impl FailingTool {
+    fn new(name: &str) -> Self {
+        Self {
+            tool_name: name.to_string(),
+        }
+    }
+}
+
+impl Tool for FailingTool {
+    fn name(&self) -> &str {
+        &self.tool_name
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: self.tool_name.clone(),
+            description: "A tool that always fails".to_string(),
+            input_schema: serde_json::json!({"type": "object", "properties": {}}),
+            cache_control: None,
+        }
+    }
+
+    fn is_read_only(&self) -> bool {
+        true
+    }
+
+    fn execute(
+        &self,
+        _input: serde_json::Value,
+        _ctx: ToolContext,
+    ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, chet_types::ToolError>> + Send + '_>> {
+        Box::pin(async move {
+            Err(chet_types::ToolError::ExecutionFailed(
+                "Simulated failure".to_string(),
+            ))
+        })
+    }
+}
+
 // ---------------------------------------------------------------------------
 // EventCapture
 // ---------------------------------------------------------------------------
@@ -1126,4 +1170,171 @@ async fn test_compaction_preserves_label_and_plan_mode() {
         first_msg_text.contains("[Session: Fix auth bug]"),
         "label should still be in first message after agent run: {first_msg_text:?}"
     );
+}
+
+/// Test that read-only tool failure doesn't cancel sibling read-only tools.
+/// Both tools run in parallel; FailingTool errors but EchoA still succeeds.
+#[tokio::test]
+#[ignore]
+async fn test_parallel_read_only_failure_isolation() {
+    // Call 1: two read-only tool_use blocks (one will fail)
+    let call1_events = vec![
+        (message_start_event(), None),
+        (tool_use_block_start(0, "t1", "EchoA"), None),
+        (input_json_delta(0, r#"{"msg":"hello"}"#), None),
+        (content_block_stop(0), None),
+        (tool_use_block_start(1, "t2", "FailTool"), None),
+        (input_json_delta(1, r#"{}"#), None),
+        (content_block_stop(1), None),
+        (message_delta_tool_use(), None),
+        (message_stop(), None),
+    ];
+
+    // Call 2: final text after getting both results
+    let call2_events = vec![
+        (message_start_event(), None),
+        (text_block_start(0), None),
+        (text_delta(0, "Got results"), None),
+        (content_block_stop(0), None),
+        (message_delta_end_turn(), None),
+        (message_stop(), None),
+    ];
+
+    let provider: Arc<dyn Provider> =
+        Arc::new(SequencedMockProvider::new(vec![call1_events, call2_events]));
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(EchoTool::new("EchoA")));
+    registry.register(Arc::new(FailingTool::new("FailTool")));
+
+    let agent = make_agent(provider, registry);
+    let cancel = CancellationToken::new();
+    let capture = Arc::new(Mutex::new(EventCapture::default()));
+
+    let mut messages = vec![Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text {
+            text: "Use both tools".to_string(),
+        }],
+    }];
+
+    let result = agent
+        .run(
+            &mut messages,
+            cancel,
+            EventCapture::callback(capture.clone()),
+        )
+        .await;
+
+    assert!(result.is_ok(), "agent should complete: {:?}", result);
+
+    let c = capture.lock().unwrap();
+    assert!(c.saw_done);
+    assert!(!c.saw_cancelled);
+
+    // Both tools should have started and ended
+    assert_eq!(c.tool_starts.len(), 2);
+    assert_eq!(c.tool_ends.len(), 2);
+
+    // One should be an error, one should succeed
+    let error_count = c.tool_ends.iter().filter(|(_, _, err)| *err).count();
+    let success_count = c.tool_ends.iter().filter(|(_, _, err)| !*err).count();
+    assert_eq!(error_count, 1, "one tool should have errored");
+    assert_eq!(success_count, 1, "one tool should have succeeded");
+
+    drop(c);
+
+    // ToolResult messages: both should be present (failure didn't cancel sibling)
+    let tool_results: Vec<_> = messages[2]
+        .content
+        .iter()
+        .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
+        .collect();
+    assert_eq!(tool_results.len(), 2, "both tool results should be present");
+}
+
+/// Test mixed read-only + writable tools: read-only run in parallel, writable runs after.
+#[tokio::test]
+#[ignore]
+async fn test_mixed_parallel_and_sequential_tools() {
+    // Call 1: one read-only (EchoA) + one writable (WritableEcho)
+    let call1_events = vec![
+        (message_start_event(), None),
+        (tool_use_block_start(0, "t1", "EchoA"), None),
+        (input_json_delta(0, r#"{"msg":"read"}"#), None),
+        (content_block_stop(0), None),
+        (tool_use_block_start(1, "t2", "WritableEcho"), None),
+        (input_json_delta(1, r#"{"msg":"write"}"#), None),
+        (content_block_stop(1), None),
+        (message_delta_tool_use(), None),
+        (message_stop(), None),
+    ];
+
+    // Call 2: final text
+    let call2_events = vec![
+        (message_start_event(), None),
+        (text_block_start(0), None),
+        (text_delta(0, "Both done"), None),
+        (content_block_stop(0), None),
+        (message_delta_end_turn(), None),
+        (message_stop(), None),
+    ];
+
+    let provider: Arc<dyn Provider> =
+        Arc::new(SequencedMockProvider::new(vec![call1_events, call2_events]));
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(EchoTool::new("EchoA"))); // read-only
+    registry.register(Arc::new(EchoTool::new_writable("WritableEcho"))); // writable
+
+    let agent = make_agent(provider, registry);
+    let cancel = CancellationToken::new();
+    let capture = Arc::new(Mutex::new(EventCapture::default()));
+
+    let mut messages = vec![Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text {
+            text: "Use both tools".to_string(),
+        }],
+    }];
+
+    let result = agent
+        .run(
+            &mut messages,
+            cancel,
+            EventCapture::callback(capture.clone()),
+        )
+        .await;
+
+    assert!(result.is_ok(), "agent should complete: {:?}", result);
+
+    let c = capture.lock().unwrap();
+    assert!(c.saw_done);
+    assert_eq!(c.tool_starts.len(), 2);
+    assert_eq!(c.tool_ends.len(), 2);
+
+    // Both should succeed
+    assert!(c.tool_ends.iter().all(|(_, _, err)| !*err));
+
+    drop(c);
+
+    // Results should be in original order (EchoA first, WritableEcho second)
+    assert_eq!(messages.len(), 4);
+    let results = &messages[2].content;
+    assert_eq!(results.len(), 2);
+    match &results[0] {
+        ContentBlock::ToolResult { tool_use_id, .. } => {
+            assert_eq!(tool_use_id, "t1", "first result should be t1 (EchoA)");
+        }
+        other => panic!("expected ToolResult, got {other:?}"),
+    }
+    match &results[1] {
+        ContentBlock::ToolResult { tool_use_id, .. } => {
+            assert_eq!(
+                tool_use_id, "t2",
+                "second result should be t2 (WritableEcho)"
+            );
+        }
+        other => panic!("expected ToolResult, got {other:?}"),
+    }
 }

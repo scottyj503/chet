@@ -341,11 +341,6 @@ impl Agent {
             for (i, (tool_id, tool_name, tool_input)) in tool_uses.iter().enumerate() {
                 let is_read_only = self.registry.is_read_only(tool_name).unwrap_or(false);
 
-                on_event(AgentEvent::ToolStart {
-                    name: tool_name.clone(),
-                    input: truncate_for_display(&tool_input.to_string(), 200),
-                });
-
                 // Safety net: block non-read-only tools in plan mode
                 if self.read_only_mode && !is_read_only {
                     on_event(AgentEvent::ToolBlocked {
