@@ -149,7 +149,7 @@ Bugs found and fixed:
 - **Increased output token limits**: Bump Opus 4.6 default max_tokens to 64k, upper bound to 128k (match CC v2.1.77).
 - ~~**`/effort auto`**~~: **DONE** — `/effort auto` resets effort to default (no explicit thinking budget). Help text and error messages updated.
 - ~~**`-n` / `--name` session flag**~~: **DONE** — `chet -n "my task"` sets session label at startup, overrides auto-label. Works with `--resume` too.
-- **`/plan` with description**: `/plan fix the auth bug` enters plan mode and immediately starts with the given prompt.
+- ~~**`/plan` with description**~~: **DONE** — `/plan fix the auth bug` enters plan mode and immediately sends the description as a message. Already in plan mode? Just sends the message.
 - **Memory file timestamps**: Add last-modified timestamps to memory files for freshness reasoning by the model.
 - **`PostCompact` hook event**: Fire hook after compaction completes. Easy addition to hook system.
 - **`/context` actionable suggestions**: Identify context-heavy tools, memory bloat, and capacity warnings with optimization tips. Current `/context` just shows numbers.

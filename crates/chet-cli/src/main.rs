@@ -429,24 +429,34 @@ async fn repl(
         }
 
         // Handle /plan toggle before other slash commands
-        if input == "/plan" {
-            if plan_mode {
+        if input == "/plan" || input.starts_with("/plan ") {
+            let plan_desc = input.strip_prefix("/plan").unwrap().trim();
+            if plan_mode && plan_desc.is_empty() {
                 // Exit plan mode
                 plan_mode = false;
                 agent.set_read_only_mode(false);
                 agent.set_system_prompt(system_prompt(cwd, &memory_section));
                 eprintln!("Exited plan mode.");
-            } else {
+                if let Some(sl) = &status_line {
+                    sl.lock().unwrap().update_field(|d| d.plan_mode = false);
+                }
+                continue;
+            }
+            if !plan_mode {
                 // Enter plan mode
                 plan_mode = true;
                 agent.set_read_only_mode(true);
                 agent.set_system_prompt(plan_system_prompt(cwd, &memory_section));
                 eprintln!("{}", chet_terminal::style::plan_mode_banner(stderr_is_tty));
+                if let Some(sl) = &status_line {
+                    sl.lock().unwrap().update_field(|d| d.plan_mode = true);
+                }
             }
-            if let Some(sl) = &status_line {
-                sl.lock().unwrap().update_field(|d| d.plan_mode = plan_mode);
+            if plan_desc.is_empty() {
+                continue;
             }
-            continue;
+            // Fall through to send plan_desc as a message
+            session.messages.push(user_message(plan_desc));
         }
 
         // Handle /effort inline (needs mutable access to agent)
@@ -515,7 +525,10 @@ async fn repl(
             }
         }
 
-        session.messages.push(user_message(input));
+        // Push user message if not already pushed by /plan <desc>
+        if !input.starts_with("/plan ") {
+            session.messages.push(user_message(input));
+        }
 
         match run_agent(
             &agent,
