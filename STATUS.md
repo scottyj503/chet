@@ -162,7 +162,7 @@ Bugs found and fixed:
 - **`ExitWorktree` tool**: Allow leaving a worktree session from within (counterpart to `EnterWorktree`).
 - **Auto-compaction circuit breaker**: If auto-compaction is added, stop retrying after 3 consecutive failures.
 - ~~**`autoMemoryDirectory` setting**~~: **DONE** — `memory_dir` in config.toml overrides default `~/.chet/memory/`. Resolved in `ChetConfig`, flows through `MemoryManager` and both memory tools.
-- **Token estimation audit**: Audit `chars/4` heuristic — CC v2.1.75 found thinking + tool_use blocks were over-counted, causing premature compaction.
+- ~~**Token estimation audit**~~: **DONE** — Thinking blocks excluded (not in input context). Text uses chars/3.5 (was chars/4). JSON/tool inputs use chars/5. ToolUse/ToolResult add fixed overhead for IDs. 4 new tests.
 
 ## Decisions Log
 

@@ -136,9 +136,18 @@ impl ContextTracker {
     }
 }
 
-/// Estimate tokens for a text string (chars / 4 heuristic).
+/// Estimate tokens for a text string (~3.5 chars/token for prose/code).
 pub fn estimate_text_tokens(text: &str) -> u64 {
-    (text.len() as u64).div_ceil(4)
+    // 3.5 chars/token is more accurate than 4 for mixed code/prose.
+    // Multiply by 2, divide by 7 to avoid floating point: ceil(len * 2 / 7)
+    let len = text.len() as u64;
+    (len * 2).div_ceil(7) // equivalent to ceil(len / 3.5)
+}
+
+/// Estimate tokens for JSON/structured data (~5 chars/token — structural
+/// characters like `{`, `"`, `:` tokenize more efficiently).
+fn estimate_json_tokens(text: &str) -> u64 {
+    (text.len() as u64).div_ceil(5)
 }
 
 /// Estimate tokens for a single content block.
@@ -146,20 +155,25 @@ fn estimate_block_tokens(block: &ContentBlock) -> u64 {
     match block {
         ContentBlock::Text { text } => estimate_text_tokens(text),
         ContentBlock::ToolUse { name, input, .. } => {
+            // Tool use has: id (~36 chars / ~10 tokens), name, and JSON input.
+            // Use JSON estimation for the input since it's structured data.
             let input_str = input.to_string();
-            estimate_text_tokens(name) + estimate_text_tokens(&input_str)
+            10 + estimate_text_tokens(name) + estimate_json_tokens(&input_str)
         }
         ContentBlock::ToolResult { content, .. } => {
-            let mut tokens = 0u64;
+            // tool_use_id overhead (~10 tokens) + content
+            let mut tokens = 10u64;
             for c in content {
                 match c {
                     ToolResultContent::Text { text } => tokens += estimate_text_tokens(text),
-                    ToolResultContent::Image { .. } => tokens += 1000, // rough image estimate
+                    ToolResultContent::Image { .. } => tokens += 1000,
                 }
             }
             tokens
         }
-        ContentBlock::Thinking { thinking, .. } => estimate_text_tokens(thinking),
+        // Thinking blocks are NOT counted — they're output-only and Anthropic
+        // does not include them in input token counts for subsequent turns.
+        ContentBlock::Thinking { .. } => 0,
         ContentBlock::Image { .. } => 1000,
     }
 }
@@ -275,6 +289,56 @@ mod tests {
         let info = tracker.estimate(&msgs, None);
         assert!(info.last_turn_input_tokens > 0);
         assert!(info.last_turn_output_tokens > 0);
+    }
+
+    #[test]
+    fn thinking_blocks_not_counted() {
+        let tracker = ContextTracker::new("claude-sonnet-4-5-20250929");
+        let msgs = vec![Message {
+            role: Role::Assistant,
+            content: vec![
+                ContentBlock::Thinking {
+                    thinking: "Let me think about this for a very long time...".repeat(100),
+                    signature: None,
+                },
+                ContentBlock::Text {
+                    text: "Here's my answer.".to_string(),
+                },
+            ],
+        }];
+        let info = tracker.estimate(&msgs, None);
+        // Only the text block + message overhead should be counted
+        let text_only = estimate_text_tokens("Here's my answer.") + 4;
+        assert_eq!(info.assistant_tokens, text_only);
+    }
+
+    #[test]
+    fn tool_use_json_estimated_efficiently() {
+        // JSON input should use chars/5 (estimate_json_tokens), not chars/3.5
+        let big_json = serde_json::json!({"file_path": "/home/user/very/long/path/to/file.rs"});
+        let input_str = big_json.to_string();
+        let json_est = estimate_json_tokens(&input_str);
+        let text_est = estimate_text_tokens(&input_str);
+        // JSON estimation should be lower than text estimation
+        assert!(
+            json_est < text_est,
+            "json={json_est} text={text_est} for {input_str}"
+        );
+    }
+
+    #[test]
+    fn estimate_text_tokens_accuracy() {
+        // "Hello world" = 11 chars, ~3.5 chars/token ≈ 3-4 tokens
+        let tokens = estimate_text_tokens("Hello world");
+        assert!((3..=4).contains(&tokens), "got {tokens}");
+    }
+
+    #[test]
+    fn estimate_json_tokens_lower_than_text() {
+        let json_str = r#"{"file_path": "/tmp/test.rs", "offset": 1, "limit": 100}"#;
+        let json_est = estimate_json_tokens(json_str);
+        let text_est = estimate_text_tokens(json_str);
+        assert!(json_est < text_est, "json={json_est} text={text_est}");
     }
 
     #[test]
