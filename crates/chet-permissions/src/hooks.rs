@@ -108,6 +108,8 @@ mod tests {
             is_error: None,
             worktree_path: None,
             worktree_source: None,
+            messages_removed: None,
+            messages_remaining: None,
         }
     }
 

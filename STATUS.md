@@ -151,7 +151,7 @@ Bugs found and fixed:
 - ~~**`-n` / `--name` session flag**~~: **DONE** — `chet -n "my task"` sets session label at startup, overrides auto-label. Works with `--resume` too.
 - ~~**`/plan` with description**~~: **DONE** — `/plan fix the auth bug` enters plan mode and immediately sends the description as a message. Already in plan mode? Just sends the message.
 - **Memory file timestamps**: Add last-modified timestamps to memory files for freshness reasoning by the model.
-- **`PostCompact` hook event**: Fire hook after compaction completes. Easy addition to hook system.
+- ~~**`PostCompact` hook event**~~: **DONE** — `post_compact` hook fires after `/compact` with `messages_removed` and `messages_remaining` in the JSON payload.
 - **`/context` actionable suggestions**: Identify context-heavy tools, memory bloat, and capacity warnings with optimization tips. Current `/context` just shows numbers.
 - **Parallel tool failure isolation**: Failed Read/Glob shouldn't cancel sibling parallel tool calls. Only Bash errors cascade.
 - **Strip progress messages during compaction**: Prevent memory growth from progress payloads surviving compaction in long sessions.

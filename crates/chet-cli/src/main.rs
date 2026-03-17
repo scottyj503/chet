@@ -291,6 +291,7 @@ async fn repl(
     project_id: Option<String>,
     memory_manager: MemoryManager,
 ) -> Result<()> {
+    let hooks_engine = Arc::clone(&permissions);
     let mut agent = create_agent(
         provider,
         permissions,
@@ -499,6 +500,7 @@ async fn repl(
             &memory_manager,
             project_id.as_deref(),
             &status_line,
+            &hooks_engine,
         )
         .await
         {
@@ -665,6 +667,7 @@ async fn handle_slash_command(
     memory_manager: &MemoryManager,
     project_id: Option<&str>,
     status_line: &Option<Arc<Mutex<StatusLine>>>,
+    hooks_engine: &Arc<PermissionEngine>,
 ) -> Option<SlashResult> {
     if !input.starts_with('/') {
         return None;
@@ -708,7 +711,7 @@ async fn handle_slash_command(
             Some(SlashResult::Continue)
         }
         "/compact" => {
-            handle_compact(session, store).await;
+            handle_compact(session, store, hooks_engine).await;
             Some(SlashResult::Continue)
         }
         "/sessions" => {
@@ -728,7 +731,11 @@ async fn handle_slash_command(
     }
 }
 
-async fn handle_compact(session: &mut Session, store: &SessionStore) {
+async fn handle_compact(
+    session: &mut Session,
+    store: &SessionStore,
+    hooks_engine: &Arc<PermissionEngine>,
+) {
     match compact(&session.messages, session.metadata.label.as_deref()) {
         Some(result) => {
             session.compaction_count += 1;
@@ -760,6 +767,25 @@ async fn handle_compact(session: &mut Session, store: &SessionStore) {
                 session.messages.len()
             );
             eprintln!("Archive saved to: {}", archive_path.display());
+
+            // Fire PostCompact hook
+            let hook_input = chet_permissions::HookInput {
+                event: chet_permissions::HookEvent::PostCompact,
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+                is_error: None,
+                worktree_path: None,
+                worktree_source: None,
+                messages_removed: Some(removed),
+                messages_remaining: Some(session.messages.len()),
+            };
+            if let Err(msg) = hooks_engine
+                .run_hooks(&chet_permissions::HookEvent::PostCompact, &hook_input)
+                .await
+            {
+                eprintln!("Warning: post_compact hook error: {msg}");
+            }
         }
         None => {
             eprintln!("Nothing to compact: conversation is too short.");

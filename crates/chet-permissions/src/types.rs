@@ -68,6 +68,7 @@ pub enum HookEvent {
     OnSessionEnd,
     WorktreeCreate,
     WorktreeRemove,
+    PostCompact,
 }
 
 /// Configuration for a single hook script.
@@ -109,6 +110,12 @@ pub struct HookInput {
     /// Path to the source repository (for worktree events).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree_source: Option<String>,
+    /// Number of messages removed (for post_compact events).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub messages_removed: Option<usize>,
+    /// Number of messages remaining (for post_compact events).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub messages_remaining: Option<usize>,
 }
 
 #[cfg(test)]
@@ -143,6 +150,8 @@ mod tests {
             is_error: None,
             worktree_path: Some("/tmp/chet-worktree-abc".to_string()),
             worktree_source: Some("/home/user/repo".to_string()),
+            messages_removed: None,
+            messages_remaining: None,
         };
         let json = serde_json::to_value(&input).unwrap();
         assert_eq!(json["event"], "worktree_create");
@@ -161,6 +170,8 @@ mod tests {
             is_error: None,
             worktree_path: None,
             worktree_source: None,
+            messages_removed: None,
+            messages_remaining: None,
         };
         let json = serde_json::to_value(&input).unwrap();
         assert!(json.get("worktree_path").is_none());
@@ -177,6 +188,8 @@ mod tests {
             is_error: None,
             worktree_path: Some("/tmp/wt".to_string()),
             worktree_source: Some("/repo".to_string()),
+            messages_removed: None,
+            messages_remaining: None,
         };
         let json = serde_json::to_string(&input).unwrap();
         let back: HookInput = serde_json::from_str(&json).unwrap();

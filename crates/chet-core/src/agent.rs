@@ -417,6 +417,8 @@ impl Agent {
                     is_error: None,
                     worktree_path: None,
                     worktree_source: None,
+                    messages_removed: None,
+                    messages_remaining: None,
                 };
                 if let Err(reason) = self
                     .permissions
@@ -482,6 +484,8 @@ impl Agent {
                     is_error: Some(output.is_error),
                     worktree_path: None,
                     worktree_source: None,
+                    messages_removed: None,
+                    messages_remaining: None,
                 };
                 if let Err(msg) = self
                     .permissions
