@@ -130,7 +130,7 @@ Bugs found and fixed:
 - **`chet agents` CLI command**: List all configured agents/subagent definitions for discoverability.
 - **MCP reconnect resilience**: Handle `/mcp reconnect` with non-existent server name gracefully instead of freezing.
 - **Session flush on disconnect**: Flush session data before hooks/analytics on SSH disconnect or connection drop. Critical for remote/CI usage.
-- **Auto-memory**: Automatically save useful context (patterns, conventions, preferences) across sessions. `/memory` command to manage. Chet equivalent of CLAUDE.md auto-generation. Share project configs + auto-memory across git worktrees of the same repo.
+- ~~**Auto-memory**~~: **DONE** — MemoryRead/MemoryWrite tools + `/memory` command. Global (`~/.chet/memory/MEMORY.md`) and per-project (`~/.chet/memory/projects/<hash>.md`) scopes. Loaded into system prompt, refreshed after each turn. Atomic writes, $EDITOR support, worktree-safe (hashes original cwd).
 - **Smarter bash permission prefixes**: Compound commands (`cd /tmp && git fetch && git push`) compute per-subcommand prefixes for granular "always allow" matching instead of treating the whole string as one.
 - **Config file corruption prevention**: Atomic writes / file locking when multiple instances (or parallel agents) touch config simultaneously.
 - **Tool result disk persistence**: Persist tool results >50K chars to disk instead of keeping in context. Reduces context window usage for long sessions.
@@ -146,6 +146,23 @@ Bugs found and fixed:
 - **Compaction preserves images for cache reuse**: Keep images in compaction summarizer request so prompt cache can be reused. Faster and cheaper compaction.
 - **Skip skill re-injection on `/resume`**: Don't re-inject skill listing when resuming sessions (~600 tokens saved per resume).
 - **MCP binary content to disk**: MCP tools returning PDFs/Office docs/audio save decoded bytes to disk with correct extension instead of dumping base64 into context.
+- **Increased output token limits**: Bump Opus 4.6 default max_tokens to 64k, upper bound to 128k (match CC v2.1.77).
+- **`/effort auto`**: Reset effort level to default (no explicit thinking budget). Trivial add to existing `/effort` command.
+- **`-n` / `--name` session flag**: Name a session at startup via CLI instead of relying on auto-label.
+- **`/plan` with description**: `/plan fix the auth bug` enters plan mode and immediately starts with the given prompt.
+- **Memory file timestamps**: Add last-modified timestamps to memory files for freshness reasoning by the model.
+- **`PostCompact` hook event**: Fire hook after compaction completes. Easy addition to hook system.
+- **`/context` actionable suggestions**: Identify context-heavy tools, memory bloat, and capacity warnings with optimization tips. Current `/context` just shows numbers.
+- **Parallel tool failure isolation**: Failed Read/Glob shouldn't cancel sibling parallel tool calls. Only Bash errors cascade.
+- **Strip progress messages during compaction**: Prevent memory growth from progress payloads surviving compaction in long sessions.
+- **Background bash output kill limit**: Kill background bash tasks if output exceeds 5GB to prevent runaway processes from filling disk.
+- **Session auto-naming from plan content**: When user accepts a plan, use the plan's content/heading for session name.
+- **MCP elicitation**: MCP servers can request structured input mid-task via interactive dialog (form fields). New JSON-RPC protocol extension.
+- **`allowRead` sandbox setting**: Re-allow read access within `denyRead` regions for fine-grained sandbox control.
+- **`ExitWorktree` tool**: Allow leaving a worktree session from within (counterpart to `EnterWorktree`).
+- **Auto-compaction circuit breaker**: If auto-compaction is added, stop retrying after 3 consecutive failures.
+- **`autoMemoryDirectory` setting**: Configurable memory directory path instead of hardcoded `~/.chet/memory/`.
+- **Token estimation audit**: Audit `chars/4` heuristic — CC v2.1.75 found thinking + tool_use blocks were over-counted, causing premature compaction.
 
 ## Decisions Log
 
