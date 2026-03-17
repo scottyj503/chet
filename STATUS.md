@@ -146,11 +146,11 @@ Bugs found and fixed:
 - **Compaction preserves images for cache reuse**: Keep images in compaction summarizer request so prompt cache can be reused. Faster and cheaper compaction.
 - **Skip skill re-injection on `/resume`**: Don't re-inject skill listing when resuming sessions (~600 tokens saved per resume).
 - **MCP binary content to disk**: MCP tools returning PDFs/Office docs/audio save decoded bytes to disk with correct extension instead of dumping base64 into context.
-- **Increased output token limits**: Bump Opus 4.6 default max_tokens to 64k, upper bound to 128k (match CC v2.1.77).
+- ~~**Increased output token limits**~~: **DONE** — Default max_tokens bumped from 16k to 64k.
 - ~~**`/effort auto`**~~: **DONE** — `/effort auto` resets effort to default (no explicit thinking budget). Help text and error messages updated.
 - ~~**`-n` / `--name` session flag**~~: **DONE** — `chet -n "my task"` sets session label at startup, overrides auto-label. Works with `--resume` too.
 - ~~**`/plan` with description**~~: **DONE** — `/plan fix the auth bug` enters plan mode and immediately sends the description as a message. Already in plan mode? Just sends the message.
-- **Memory file timestamps**: Add last-modified timestamps to memory files for freshness reasoning by the model.
+- ~~**Memory file timestamps**~~: **DONE** — Memory section headings include "(last updated: YYYY-MM-DD HH:MM UTC)" from file mtime. Model can reason about freshness.
 - ~~**`PostCompact` hook event**~~: **DONE** — `post_compact` hook fires after `/compact` with `messages_removed` and `messages_remaining` in the JSON payload.
 - **`/context` actionable suggestions**: Identify context-heavy tools, memory bloat, and capacity warnings with optimization tips. Current `/context` just shows numbers.
 - **Parallel tool failure isolation**: Failed Read/Glob shouldn't cancel sibling parallel tool calls. Only Bash errors cascade.

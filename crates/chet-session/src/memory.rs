@@ -48,13 +48,24 @@ impl MemoryManager {
     }
 
     /// Load and format both global and project memory into a single section.
+    /// Includes last-modified timestamps when files exist.
     pub async fn load_combined(&self, project_id: Option<&str>) -> String {
         let global = self.load_global().await;
+        let global_modified = file_modified_label(&self.global_memory_path()).await;
         let project = match project_id {
             Some(id) => self.load_project(id).await,
             None => String::new(),
         };
-        format_memory_section(&global, &project)
+        let project_modified = match project_id {
+            Some(id) => file_modified_label(&self.project_memory_path(id)).await,
+            None => None,
+        };
+        format_memory_section(
+            &global,
+            global_modified.as_deref(),
+            &project,
+            project_modified.as_deref(),
+        )
     }
 
     /// Write global memory atomically (tmp file + rename).
@@ -92,7 +103,13 @@ impl MemoryManager {
 
 /// Format global and project memory into a combined section.
 /// Returns empty string if both are empty.
-pub fn format_memory_section(global: &str, project: &str) -> String {
+/// Optional timestamps are shown as "(last updated: ...)" after section headings.
+pub fn format_memory_section(
+    global: &str,
+    global_modified: Option<&str>,
+    project: &str,
+    project_modified: Option<&str>,
+) -> String {
     let global = global.trim();
     let project = project.trim();
 
@@ -103,18 +120,32 @@ pub fn format_memory_section(global: &str, project: &str) -> String {
     let mut out = String::from("# Memory\n\n");
 
     if !global.is_empty() {
-        out.push_str("## Global Memory\n\n");
+        match global_modified {
+            Some(ts) => out.push_str(&format!("## Global Memory (last updated: {ts})\n\n")),
+            None => out.push_str("## Global Memory\n\n"),
+        }
         out.push_str(global);
         out.push_str("\n\n");
     }
 
     if !project.is_empty() {
-        out.push_str("## Project Memory\n\n");
+        match project_modified {
+            Some(ts) => out.push_str(&format!("## Project Memory (last updated: {ts})\n\n")),
+            None => out.push_str("## Project Memory\n\n"),
+        }
         out.push_str(project);
         out.push('\n');
     }
 
     out
+}
+
+/// Get a human-readable last-modified label for a file, or None if the file doesn't exist.
+async fn file_modified_label(path: &Path) -> Option<String> {
+    let meta = tokio::fs::metadata(path).await.ok()?;
+    let modified = meta.modified().ok()?;
+    let dt: chrono::DateTime<chrono::Utc> = modified.into();
+    Some(dt.format("%Y-%m-%d %H:%M UTC").to_string())
 }
 
 /// Write content to a file atomically via a temporary file + rename.
@@ -147,7 +178,7 @@ mod tests {
 
     #[test]
     fn format_memory_section_both() {
-        let result = format_memory_section("global stuff", "project stuff");
+        let result = format_memory_section("global stuff", None, "project stuff", None);
         assert!(result.contains("# Memory"));
         assert!(result.contains("## Global Memory"));
         assert!(result.contains("global stuff"));
@@ -157,22 +188,43 @@ mod tests {
 
     #[test]
     fn format_memory_section_global_only() {
-        let result = format_memory_section("global stuff", "");
+        let result = format_memory_section("global stuff", None, "", None);
         assert!(result.contains("## Global Memory"));
         assert!(!result.contains("## Project Memory"));
     }
 
     #[test]
     fn format_memory_section_project_only() {
-        let result = format_memory_section("", "project stuff");
+        let result = format_memory_section("", None, "project stuff", None);
         assert!(!result.contains("## Global Memory"));
         assert!(result.contains("## Project Memory"));
     }
 
     #[test]
     fn format_memory_section_empty() {
-        let result = format_memory_section("", "");
+        let result = format_memory_section("", None, "", None);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn format_memory_section_with_timestamps() {
+        let result = format_memory_section(
+            "global",
+            Some("2026-03-16 12:00 UTC"),
+            "project",
+            Some("2026-03-15 08:30 UTC"),
+        );
+        assert!(result.contains("last updated: 2026-03-16 12:00 UTC"));
+        assert!(result.contains("last updated: 2026-03-15 08:30 UTC"));
+    }
+
+    #[tokio::test]
+    async fn load_combined_includes_timestamps() {
+        let dir = TempDir::new().unwrap();
+        let mgr = MemoryManager::new(dir.path().to_path_buf());
+        mgr.write_global("some memory").await.unwrap();
+        let combined = mgr.load_combined(None).await;
+        assert!(combined.contains("last updated:"));
     }
 
     #[tokio::test]

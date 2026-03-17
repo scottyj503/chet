@@ -15,7 +15,7 @@ pub const DEFAULT_API_BASE_URL: &str = "https://api.anthropic.com";
 pub const DEFAULT_MODEL: &str = "claude-sonnet-4-5-20250929";
 
 /// The default max tokens for a response.
-pub const DEFAULT_MAX_TOKENS: u32 = 16384;
+pub const DEFAULT_MAX_TOKENS: u32 = 65536;
 
 /// Resolved configuration for a Chet session.
 #[derive(Debug, Clone)]
