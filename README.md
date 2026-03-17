@@ -133,9 +133,11 @@ Options:
 Create `~/.chet/config.toml`:
 
 ```toml
+# memory_dir = "/custom/path/to/memory"  # default: ~/.chet/memory/
+
 [api]
 model = "claude-sonnet-4-5-20250929"
-max_tokens = 16384
+max_tokens = 65536
 # api_key = "sk-ant-..."  # prefer ANTHROPIC_API_KEY env var
 # thinking_budget = 10000  # enable extended thinking
 # effort = "medium"        # effort level: low (1024), medium (8192), high (32768)
@@ -197,7 +199,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (381 tests — runs fast, no API key needed)
+# Unit tests (392 tests — runs fast, no API key needed)
 cargo test --workspace
 
 # Integration tests (6 SSE + 4 retry + 8 agent + 1 pipe mode + 3 MCP e2e + 3 session — on-demand)
