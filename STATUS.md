@@ -131,7 +131,7 @@ Bugs found and fixed:
 - **MCP reconnect resilience**: Handle `/mcp reconnect` with non-existent server name gracefully instead of freezing.
 - **Session flush on disconnect**: Flush session data before hooks/analytics on SSH disconnect or connection drop. Critical for remote/CI usage.
 - ~~**Auto-memory**~~: **DONE** — MemoryRead/MemoryWrite tools + `/memory` command. Global (`~/.chet/memory/MEMORY.md`) and per-project (`~/.chet/memory/projects/<hash>.md`) scopes. Loaded into system prompt, refreshed after each turn. Atomic writes, $EDITOR support, worktree-safe (hashes original cwd).
-- **Smarter bash permission prefixes**: Compound commands (`cd /tmp && git fetch && git push`) compute per-subcommand prefixes for granular "always allow" matching instead of treating the whole string as one.
+- ~~**Smarter bash permission prefixes**~~: **DONE** — Compound commands split on `&&`, `||`, `;`, `|` (quote-aware) for per-subcommand rule matching. `command:rm *` now catches `cd /tmp && rm -rf /`. 11 new tests.
 - **Config file corruption prevention**: Atomic writes / file locking when multiple instances (or parallel agents) touch config simultaneously.
 - **Tool result disk persistence**: Persist tool results >50K chars to disk instead of keeping in context. Reduces context window usage for long sessions.
 - **`/copy` command**: Interactive picker to select and copy individual code blocks or full response from agent output.

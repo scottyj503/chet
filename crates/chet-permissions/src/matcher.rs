@@ -102,14 +102,87 @@ impl RuleMatcher {
             _ => return false,
         };
 
-        match globset::GlobBuilder::new(glob_pattern)
+        // For Bash command field, split compound commands and match each subcommand.
+        // A rule matches if ANY subcommand matches the glob pattern.
+        if field_name == "command" {
+            return split_subcommands(field_value)
+                .iter()
+                .any(|sub| Self::glob_matches(glob_pattern, sub));
+        }
+
+        Self::glob_matches(glob_pattern, field_value)
+    }
+
+    fn glob_matches(pattern: &str, value: &str) -> bool {
+        match globset::GlobBuilder::new(pattern)
             .case_insensitive(false)
             .build()
         {
-            Ok(glob) => glob.compile_matcher().is_match(field_value),
-            Err(_) => glob_pattern == field_value,
+            Ok(glob) => glob.compile_matcher().is_match(value),
+            Err(_) => pattern == value,
         }
     }
+}
+
+/// Split a shell command into subcommands on `&&`, `||`, `;`, and `|`.
+/// Each subcommand is trimmed. Preserves quoted strings (single/double).
+fn split_subcommands(command: &str) -> Vec<&str> {
+    let mut results = Vec::new();
+    let mut start = 0;
+    let mut chars = command.char_indices().peekable();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            '"' if !in_single_quote => in_double_quote = !in_double_quote,
+            '&' if !in_single_quote && !in_double_quote => {
+                if chars.peek().map(|(_, c)| *c) == Some('&') {
+                    let sub = command[start..i].trim();
+                    if !sub.is_empty() {
+                        results.push(sub);
+                    }
+                    chars.next(); // consume second '&'
+                    start = chars.peek().map(|(i, _)| *i).unwrap_or(command.len());
+                }
+            }
+            '|' if !in_single_quote && !in_double_quote => {
+                if chars.peek().map(|(_, c)| *c) == Some('|') {
+                    // ||
+                    let sub = command[start..i].trim();
+                    if !sub.is_empty() {
+                        results.push(sub);
+                    }
+                    chars.next(); // consume second '|'
+                    start = chars.peek().map(|(i, _)| *i).unwrap_or(command.len());
+                } else {
+                    // pipe |
+                    let sub = command[start..i].trim();
+                    if !sub.is_empty() {
+                        results.push(sub);
+                    }
+                    start = chars.peek().map(|(i, _)| *i).unwrap_or(command.len());
+                }
+            }
+            ';' if !in_single_quote && !in_double_quote => {
+                let sub = command[start..i].trim();
+                if !sub.is_empty() {
+                    results.push(sub);
+                }
+                start = chars.peek().map(|(i, _)| *i).unwrap_or(command.len());
+            }
+            _ => {}
+        }
+    }
+
+    // Remaining tail
+    let tail = command[start..].trim();
+    if !tail.is_empty() {
+        results.push(tail);
+    }
+
+    results
 }
 
 #[cfg(test)]
@@ -224,6 +297,108 @@ mod tests {
         let result = RuleMatcher::evaluate(&rules, "Bash", &json!({}));
         let result = result.unwrap();
         assert_eq!(result.description, "rule: Bash -> prompt");
+    }
+
+    #[test]
+    fn test_compound_command_block_matches_subcommand() {
+        let r = rule("Bash", Some("command:rm *"), PermissionLevel::Block);
+        // "rm" is a subcommand in a compound command
+        assert!(RuleMatcher::matches(
+            &r,
+            "Bash",
+            &json!({"command": "cd /tmp && rm -rf /"})
+        ));
+    }
+
+    #[test]
+    fn test_compound_command_permit_matches_subcommand() {
+        let r = rule("Bash", Some("command:git *"), PermissionLevel::Permit);
+        // "git fetch" is a subcommand
+        assert!(RuleMatcher::matches(
+            &r,
+            "Bash",
+            &json!({"command": "cd /repo && git fetch && git push"})
+        ));
+    }
+
+    #[test]
+    fn test_compound_command_no_match() {
+        let r = rule("Bash", Some("command:git *"), PermissionLevel::Permit);
+        assert!(!RuleMatcher::matches(
+            &r,
+            "Bash",
+            &json!({"command": "cd /tmp && ls -la"})
+        ));
+    }
+
+    #[test]
+    fn test_compound_command_semicolon_split() {
+        let r = rule("Bash", Some("command:rm *"), PermissionLevel::Block);
+        assert!(RuleMatcher::matches(
+            &r,
+            "Bash",
+            &json!({"command": "echo hello; rm -rf /"})
+        ));
+    }
+
+    #[test]
+    fn test_compound_command_pipe_split() {
+        let r = rule("Bash", Some("command:grep *"), PermissionLevel::Permit);
+        assert!(RuleMatcher::matches(
+            &r,
+            "Bash",
+            &json!({"command": "cat file.txt | grep pattern"})
+        ));
+    }
+
+    #[test]
+    fn test_compound_command_or_split() {
+        let r = rule("Bash", Some("command:rm *"), PermissionLevel::Block);
+        assert!(RuleMatcher::matches(
+            &r,
+            "Bash",
+            &json!({"command": "test -f /tmp/x || rm -rf /"})
+        ));
+    }
+
+    #[test]
+    fn test_compound_command_quoted_separators_ignored() {
+        let r = rule("Bash", Some("command:rm *"), PermissionLevel::Block);
+        // The && is inside quotes, so it's not a separator — whole command is one unit
+        assert!(!RuleMatcher::matches(
+            &r,
+            "Bash",
+            &json!({"command": "echo 'cd /tmp && rm -rf /'"})
+        ));
+    }
+
+    #[test]
+    fn test_split_subcommands_simple() {
+        assert_eq!(split_subcommands("git status"), vec!["git status"]);
+    }
+
+    #[test]
+    fn test_split_subcommands_and() {
+        assert_eq!(
+            split_subcommands("cd /tmp && git fetch && git push"),
+            vec!["cd /tmp", "git fetch", "git push"]
+        );
+    }
+
+    #[test]
+    fn test_split_subcommands_mixed() {
+        assert_eq!(
+            split_subcommands("echo a; echo b | cat && echo c || echo d"),
+            vec!["echo a", "echo b", "cat", "echo c", "echo d"]
+        );
+    }
+
+    #[test]
+    fn test_split_subcommands_preserves_quotes() {
+        assert_eq!(
+            split_subcommands("echo 'a && b' && echo c"),
+            vec!["echo 'a && b'", "echo c"]
+        );
     }
 
     #[test]
