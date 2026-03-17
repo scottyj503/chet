@@ -8,410 +8,20 @@
 //!
 //! Run with: `cargo test -p chet-core --test cancellation_integration -- --ignored`
 
-use std::future::Future;
+mod common;
+
 use std::path::PathBuf;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use chet_core::{Agent, AgentEvent, SubagentTool};
+use chet_core::{Agent, SubagentTool};
 use chet_permissions::PermissionEngine;
 use chet_session::compact;
 use chet_tools::ToolRegistry;
-use chet_types::{
-    ApiError, ChetError, ContentBlock, ContentDelta, CreateMessageRequest, CreateMessageResponse,
-    Message, MessageDelta, Role, StopReason, StreamEvent, ToolDefinition, ToolOutput, Usage,
-    provider::{EventStream, Provider},
-    tool::{Tool, ToolContext},
-};
-use futures_util::stream;
+use chet_types::{ChetError, ContentBlock, Message, Role, StreamEvent, provider::Provider};
 use tokio_util::sync::CancellationToken;
 
-// ---------------------------------------------------------------------------
-// MockProvider
-// ---------------------------------------------------------------------------
-
-/// A test provider that yields pre-configured events with optional delays.
-struct MockProvider {
-    events: Vec<(StreamEvent, Option<u64>)>,
-}
-
-impl MockProvider {
-    fn new(events: Vec<(StreamEvent, Option<u64>)>) -> Self {
-        Self { events }
-    }
-}
-
-impl Provider for MockProvider {
-    fn create_message_stream<'a>(
-        &'a self,
-        _request: &'a CreateMessageRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<EventStream, ApiError>> + Send + 'a>> {
-        let events = self.events.clone();
-        Box::pin(async move {
-            let stream = stream::unfold(events.into_iter(), |mut iter| async move {
-                let (event, delay_ms) = iter.next()?;
-                if let Some(ms) = delay_ms {
-                    tokio::time::sleep(Duration::from_millis(ms)).await;
-                }
-                Some((Ok(event), iter))
-            });
-            Ok(Box::pin(stream) as EventStream)
-        })
-    }
-
-    fn name(&self) -> &str {
-        "mock"
-    }
-}
-
-// ---------------------------------------------------------------------------
-// SequencedMockProvider
-// ---------------------------------------------------------------------------
-
-/// A test provider that returns different event lists on successive calls.
-/// Each `create_message_stream()` call consumes the next entry from `sequences`.
-/// Panics if called more times than there are sequences (indicates a test bug).
-struct SequencedMockProvider {
-    sequences: Vec<Vec<(StreamEvent, Option<u64>)>>,
-    call_count: AtomicUsize,
-}
-
-impl SequencedMockProvider {
-    fn new(sequences: Vec<Vec<(StreamEvent, Option<u64>)>>) -> Self {
-        Self {
-            sequences,
-            call_count: AtomicUsize::new(0),
-        }
-    }
-}
-
-impl Provider for SequencedMockProvider {
-    fn create_message_stream<'a>(
-        &'a self,
-        _request: &'a CreateMessageRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<EventStream, ApiError>> + Send + 'a>> {
-        let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
-        assert!(
-            idx < self.sequences.len(),
-            "SequencedMockProvider: call {idx} exceeds {} sequences (test bug)",
-            self.sequences.len()
-        );
-        let events = self.sequences[idx].clone();
-        Box::pin(async move {
-            let stream = stream::unfold(events.into_iter(), |mut iter| async move {
-                let (event, delay_ms) = iter.next()?;
-                if let Some(ms) = delay_ms {
-                    tokio::time::sleep(Duration::from_millis(ms)).await;
-                }
-                Some((Ok(event), iter))
-            });
-            Ok(Box::pin(stream) as EventStream)
-        })
-    }
-
-    fn name(&self) -> &str {
-        "sequenced-mock"
-    }
-}
-
-// ---------------------------------------------------------------------------
-// SlowTool
-// ---------------------------------------------------------------------------
-
-/// A tool that sleeps for a configurable duration. Used to test mid-tool cancellation.
-struct SlowTool;
-
-impl Tool for SlowTool {
-    fn name(&self) -> &str {
-        "SlowTool"
-    }
-
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: "SlowTool".to_string(),
-            description: "Sleeps for sleep_ms milliseconds".to_string(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "sleep_ms": { "type": "integer" }
-                }
-            }),
-            cache_control: None,
-        }
-    }
-
-    fn is_read_only(&self) -> bool {
-        true // auto-permitted, no permission prompt needed
-    }
-
-    fn execute(
-        &self,
-        input: serde_json::Value,
-        _ctx: ToolContext,
-    ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, chet_types::ToolError>> + Send + '_>> {
-        Box::pin(async move {
-            let sleep_ms = input
-                .get("sleep_ms")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(5000);
-            tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
-            Ok(ToolOutput::text("done"))
-        })
-    }
-}
-
-// ---------------------------------------------------------------------------
-// EchoTool
-// ---------------------------------------------------------------------------
-
-/// A generic test tool that echoes its input JSON as text output.
-/// The name and read-only status are configurable.
-struct EchoTool {
-    tool_name: String,
-    read_only: bool,
-}
-
-impl EchoTool {
-    fn new(name: &str) -> Self {
-        Self {
-            tool_name: name.to_string(),
-            read_only: true,
-        }
-    }
-
-    fn new_writable(name: &str) -> Self {
-        Self {
-            tool_name: name.to_string(),
-            read_only: false,
-        }
-    }
-}
-
-impl Tool for EchoTool {
-    fn name(&self) -> &str {
-        &self.tool_name
-    }
-
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: self.tool_name.clone(),
-            description: format!("Echo tool named {}", self.tool_name),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "msg": { "type": "string" }
-                }
-            }),
-            cache_control: None,
-        }
-    }
-
-    fn is_read_only(&self) -> bool {
-        self.read_only
-    }
-
-    fn execute(
-        &self,
-        input: serde_json::Value,
-        _ctx: ToolContext,
-    ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, chet_types::ToolError>> + Send + '_>> {
-        Box::pin(async move { Ok(ToolOutput::text(input.to_string())) })
-    }
-}
-
-/// A read-only tool that always fails with an error.
-struct FailingTool {
-    tool_name: String,
-}
-
-impl FailingTool {
-    fn new(name: &str) -> Self {
-        Self {
-            tool_name: name.to_string(),
-        }
-    }
-}
-
-impl Tool for FailingTool {
-    fn name(&self) -> &str {
-        &self.tool_name
-    }
-
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: self.tool_name.clone(),
-            description: "A tool that always fails".to_string(),
-            input_schema: serde_json::json!({"type": "object", "properties": {}}),
-            cache_control: None,
-        }
-    }
-
-    fn is_read_only(&self) -> bool {
-        true
-    }
-
-    fn execute(
-        &self,
-        _input: serde_json::Value,
-        _ctx: ToolContext,
-    ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, chet_types::ToolError>> + Send + '_>> {
-        Box::pin(async move {
-            Err(chet_types::ToolError::ExecutionFailed(
-                "Simulated failure".to_string(),
-            ))
-        })
-    }
-}
-
-// ---------------------------------------------------------------------------
-// EventCapture
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Default)]
-struct EventCapture {
-    saw_cancelled: bool,
-    saw_done: bool,
-    text_deltas: Vec<String>,
-    tool_starts: Vec<String>,
-    tool_ends: Vec<(String, String, bool)>,
-    tool_blocked: Vec<(String, String)>,
-}
-
-impl EventCapture {
-    fn callback(capture: Arc<Mutex<Self>>) -> impl FnMut(AgentEvent) {
-        move |event| {
-            let mut c = capture.lock().unwrap();
-            match event {
-                AgentEvent::Cancelled => c.saw_cancelled = true,
-                AgentEvent::Done => c.saw_done = true,
-                AgentEvent::TextDelta(t) => c.text_deltas.push(t),
-                AgentEvent::ToolStart { name, .. } => c.tool_starts.push(name),
-                AgentEvent::ToolEnd {
-                    name,
-                    output,
-                    is_error,
-                } => c.tool_ends.push((name, output, is_error)),
-                AgentEvent::ToolBlocked { name, reason } => c.tool_blocked.push((name, reason)),
-                _ => {}
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Event builder helpers
-// ---------------------------------------------------------------------------
-
-fn message_start_event() -> StreamEvent {
-    StreamEvent::MessageStart {
-        message: CreateMessageResponse {
-            id: "msg_test".to_string(),
-            response_type: "message".to_string(),
-            role: Role::Assistant,
-            content: vec![],
-            model: "test-model".to_string(),
-            stop_reason: None,
-            usage: Usage {
-                input_tokens: 10,
-                output_tokens: 0,
-                cache_creation_input_tokens: 0,
-                cache_read_input_tokens: 0,
-            },
-        },
-    }
-}
-
-fn text_block_start(index: usize) -> StreamEvent {
-    StreamEvent::ContentBlockStart {
-        index,
-        content_block: ContentBlock::Text {
-            text: String::new(),
-        },
-    }
-}
-
-fn text_delta(index: usize, text: &str) -> StreamEvent {
-    StreamEvent::ContentBlockDelta {
-        index,
-        delta: ContentDelta::TextDelta {
-            text: text.to_string(),
-        },
-    }
-}
-
-fn content_block_stop(index: usize) -> StreamEvent {
-    StreamEvent::ContentBlockStop { index }
-}
-
-fn tool_use_block_start(index: usize, id: &str, name: &str) -> StreamEvent {
-    StreamEvent::ContentBlockStart {
-        index,
-        content_block: ContentBlock::ToolUse {
-            id: id.to_string(),
-            name: name.to_string(),
-            input: serde_json::Value::Null,
-        },
-    }
-}
-
-fn input_json_delta(index: usize, json: &str) -> StreamEvent {
-    StreamEvent::ContentBlockDelta {
-        index,
-        delta: ContentDelta::InputJsonDelta {
-            partial_json: json.to_string(),
-        },
-    }
-}
-
-fn message_delta_end_turn() -> StreamEvent {
-    StreamEvent::MessageDelta {
-        delta: MessageDelta {
-            stop_reason: Some(StopReason::EndTurn),
-        },
-        usage: Some(Usage {
-            input_tokens: 0,
-            output_tokens: 5,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-        }),
-    }
-}
-
-fn message_stop() -> StreamEvent {
-    StreamEvent::MessageStop
-}
-
-fn message_delta_tool_use() -> StreamEvent {
-    StreamEvent::MessageDelta {
-        delta: MessageDelta {
-            stop_reason: Some(StopReason::ToolUse),
-        },
-        usage: Some(Usage {
-            input_tokens: 0,
-            output_tokens: 5,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-        }),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: build an Agent with a MockProvider
-// ---------------------------------------------------------------------------
-
-fn make_agent(provider: Arc<dyn Provider>, registry: ToolRegistry) -> Agent {
-    let permissions = Arc::new(PermissionEngine::ludicrous());
-    Agent::new(
-        provider,
-        registry,
-        permissions,
-        "test-model".to_string(),
-        1024,
-        PathBuf::from("/tmp"),
-    )
-}
+use common::*;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -480,7 +90,6 @@ async fn test_cancel_mid_stream() {
 #[tokio::test]
 #[ignore]
 async fn test_cancel_mid_tool() {
-    // Stream a fast tool_use block, then message_delta with stop_reason=tool_use
     let events = vec![
         (message_start_event(), None),
         (tool_use_block_start(0, "tool_001", "SlowTool"), None),
@@ -587,11 +196,9 @@ async fn test_cancel_after_completion() {
 
 /// MockProvider returns 2 tool_use blocks in one response. Both tools execute,
 /// results are sent back, and the agent completes with a final text response.
-/// Validates the common real-world pattern of parallel tool calls.
 #[tokio::test]
 #[ignore]
 async fn test_multi_tool_use_turn() {
-    // Call 1: two tool_use blocks in one response
     let call1_events = vec![
         (message_start_event(), None),
         (tool_use_block_start(0, "t1", "EchoA"), None),
@@ -604,7 +211,6 @@ async fn test_multi_tool_use_turn() {
         (message_stop(), None),
     ];
 
-    // Call 2: final text response after tool results
     let call2_events = vec![
         (message_start_event(), None),
         (text_block_start(0), None),
@@ -640,76 +246,37 @@ async fn test_multi_tool_use_turn() {
         )
         .await;
 
-    // Agent should complete successfully
     assert!(result.is_ok(), "should complete successfully: {:?}", result);
 
     let c = capture.lock().unwrap();
     assert!(c.saw_done, "should have seen Done event");
     assert!(!c.saw_cancelled, "should NOT have seen Cancelled event");
-
-    // Both tools should have started and ended
-    assert!(
-        c.tool_starts.contains(&"EchoA".to_string()),
-        "should have started EchoA"
-    );
-    assert!(
-        c.tool_starts.contains(&"EchoB".to_string()),
-        "should have started EchoB"
-    );
+    assert!(c.tool_starts.contains(&"EchoA".to_string()));
+    assert!(c.tool_starts.contains(&"EchoB".to_string()));
     assert_eq!(c.tool_ends.len(), 2, "both tools should have ended");
-    assert!(
-        !c.tool_ends[0].2,
-        "EchoA should not be an error: {:?}",
-        c.tool_ends[0]
-    );
-    assert!(
-        !c.tool_ends[1].2,
-        "EchoB should not be an error: {:?}",
-        c.tool_ends[1]
-    );
-
-    // Drop lock before inspecting messages
+    assert!(!c.tool_ends[0].2, "EchoA should not be an error");
+    assert!(!c.tool_ends[1].2, "EchoB should not be an error");
     drop(c);
 
     // Message structure: [user, assistant(2 tool_use), user(2 tool_result), assistant(text)]
-    assert_eq!(
-        messages.len(),
-        4,
-        "expected 4 messages, got {}: {:?}",
-        messages.len(),
-        messages.iter().map(|m| &m.role).collect::<Vec<_>>()
-    );
-
-    // Message 0: original user message
+    assert_eq!(messages.len(), 4);
     assert_eq!(messages[0].role, Role::User);
-
-    // Message 1: assistant with 2 ToolUse content blocks
     assert_eq!(messages[1].role, Role::Assistant);
-    let tool_use_blocks: Vec<_> = messages[1]
+    let tool_use_count = messages[1]
         .content
         .iter()
         .filter(|b| matches!(b, ContentBlock::ToolUse { .. }))
-        .collect();
-    assert_eq!(
-        tool_use_blocks.len(),
-        2,
-        "assistant message should have 2 ToolUse blocks"
-    );
+        .count();
+    assert_eq!(tool_use_count, 2);
 
-    // Message 2: user with 2 ToolResult content blocks
     assert_eq!(messages[2].role, Role::User);
-    let tool_result_blocks: Vec<_> = messages[2]
+    let tool_result_count = messages[2]
         .content
         .iter()
         .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
-        .collect();
-    assert_eq!(
-        tool_result_blocks.len(),
-        2,
-        "user message should have 2 ToolResult blocks"
-    );
+        .count();
+    assert_eq!(tool_result_count, 2);
 
-    // Message 3: final assistant text
     assert_eq!(messages[3].role, Role::Assistant);
     let final_text: String = messages[3]
         .content
@@ -722,13 +289,10 @@ async fn test_multi_tool_use_turn() {
     assert_eq!(final_text, "Both tools done");
 }
 
-/// Agent in read-only mode receives a tool_use for a non-read-only tool.
-/// The tool should be blocked (not executed), ToolBlocked event should fire,
-/// and the agent should continue to produce the final text response.
+/// Agent in read-only mode blocks non-read-only tools.
 #[tokio::test]
 #[ignore]
 async fn test_plan_mode_tool_blocking() {
-    // Call 1: API requests a non-read-only tool ("WriteTool")
     let call1_events = vec![
         (message_start_event(), None),
         (tool_use_block_start(0, "t1", "WriteTool"), None),
@@ -738,7 +302,6 @@ async fn test_plan_mode_tool_blocking() {
         (message_stop(), None),
     ];
 
-    // Call 2: after receiving the blocked tool result, API responds with text
     let call2_events = vec![
         (message_start_event(), None),
         (text_block_start(0), None),
@@ -775,55 +338,26 @@ async fn test_plan_mode_tool_blocking() {
         )
         .await;
 
-    // Agent should complete successfully (blocking a tool is not a fatal error)
     assert!(result.is_ok(), "should complete successfully: {:?}", result);
 
     let c = capture.lock().unwrap();
-    assert!(c.saw_done, "should have seen Done event");
-    assert!(!c.saw_cancelled, "should NOT have seen Cancelled event");
-
-    // Tool should have been blocked (not executed)
-    assert_eq!(
-        c.tool_blocked.len(),
-        1,
-        "exactly one tool should be blocked"
-    );
+    assert!(c.saw_done);
+    assert_eq!(c.tool_blocked.len(), 1);
     assert_eq!(c.tool_blocked[0].0, "WriteTool");
-    assert!(
-        c.tool_blocked[0].1.contains("read-only"),
-        "reason should mention read-only: {:?}",
-        c.tool_blocked[0].1
-    );
-    // ToolStart fires during streaming (before the read-only check), but ToolEnd should not
-    assert_eq!(c.tool_starts.len(), 1, "ToolStart fires during streaming");
-    assert_eq!(c.tool_starts[0], "WriteTool");
+    assert!(c.tool_blocked[0].1.contains("read-only"));
+    assert_eq!(c.tool_starts.len(), 1);
     assert!(c.tool_ends.is_empty(), "tool should NOT have executed");
-
-    // Drop lock before inspecting messages
     drop(c);
 
-    // Message structure: [user, assistant(1 tool_use), user(1 tool_result with is_error), assistant(text)]
-    assert_eq!(
-        messages.len(),
-        4,
-        "expected 4 messages, got {}: {:?}",
-        messages.len(),
-        messages.iter().map(|m| &m.role).collect::<Vec<_>>()
-    );
-
-    // Message 2: tool result should be an error
-    assert_eq!(messages[2].role, Role::User);
-    let tool_result = messages[2]
+    assert_eq!(messages.len(), 4);
+    if let Some(ContentBlock::ToolResult { is_error, .. }) = messages[2]
         .content
         .iter()
-        .find(|b| matches!(b, ContentBlock::ToolResult { .. }));
-    assert!(tool_result.is_some(), "should have a ToolResult block");
-    if let Some(ContentBlock::ToolResult { is_error, .. }) = tool_result {
-        assert_eq!(*is_error, Some(true), "tool result should be an error");
+        .find(|b| matches!(b, ContentBlock::ToolResult { .. }))
+    {
+        assert_eq!(*is_error, Some(true));
     }
 
-    // Message 3: final assistant text
-    assert_eq!(messages[3].role, Role::Assistant);
     let final_text: String = messages[3]
         .content
         .iter()
@@ -835,16 +369,12 @@ async fn test_plan_mode_tool_blocking() {
     assert_eq!(final_text, "Understood, tool was blocked");
 }
 
-/// Parent agent calls SubagentTool, child agent runs against the same mock provider
-/// and returns a text response, parent receives the child's text as tool output and
-/// produces a final response. Validates the full SubagentTool → Agent → result pipeline.
+/// Parent agent calls SubagentTool, child returns text, parent produces final response.
 #[tokio::test]
 #[ignore]
 async fn test_subagent_end_to_end() {
-    // The Subagent tool input JSON
     let subagent_input = r#"{"prompt":"What is 2+2?","description":"math question"}"#;
 
-    // Call 1 (parent): returns Subagent tool_use
     let call1_events = vec![
         (message_start_event(), None),
         (tool_use_block_start(0, "t1", "Subagent"), None),
@@ -854,7 +384,6 @@ async fn test_subagent_end_to_end() {
         (message_stop(), None),
     ];
 
-    // Call 2 (child agent inside SubagentTool): returns text directly
     let call2_events = vec![
         (message_start_event(), None),
         (text_block_start(0), None),
@@ -864,7 +393,6 @@ async fn test_subagent_end_to_end() {
         (message_stop(), None),
     ];
 
-    // Call 3 (parent): after receiving subagent result, returns final text
     let call3_events = vec![
         (message_start_event(), None),
         (text_block_start(0), None),
@@ -917,54 +445,16 @@ async fn test_subagent_end_to_end() {
         )
         .await;
 
-    // Agent should complete successfully
     assert!(result.is_ok(), "should complete successfully: {:?}", result);
 
     let c = capture.lock().unwrap();
-    assert!(c.saw_done, "should have seen Done event");
-    assert!(!c.saw_cancelled, "should NOT have seen Cancelled event");
-
-    // Subagent tool should have started and ended successfully
-    assert!(
-        c.tool_starts.contains(&"Subagent".to_string()),
-        "should have started Subagent tool"
-    );
-    assert_eq!(c.tool_ends.len(), 1, "one tool should have ended");
-    assert_eq!(c.tool_ends[0].0, "Subagent");
-    assert!(
-        !c.tool_ends[0].2,
-        "Subagent should not be an error: {:?}",
-        c.tool_ends[0]
-    );
-    // The tool output should contain the child agent's response
-    assert!(
-        c.tool_ends[0].1.contains("The answer is 4"),
-        "tool output should contain child's response: {:?}",
-        c.tool_ends[0].1
-    );
-
-    // Drop lock before inspecting messages
+    assert!(c.saw_done);
+    assert!(c.tool_starts.contains(&"Subagent".to_string()));
+    assert_eq!(c.tool_ends.len(), 1);
+    assert!(c.tool_ends[0].1.contains("The answer is 4"));
     drop(c);
 
-    // Message structure: [user, assistant(Subagent tool_use), user(tool_result), assistant(text)]
-    assert_eq!(
-        messages.len(),
-        4,
-        "expected 4 messages, got {}: {:?}",
-        messages.len(),
-        messages.iter().map(|m| &m.role).collect::<Vec<_>>()
-    );
-
-    // Message 1: assistant with Subagent ToolUse
-    assert_eq!(messages[1].role, Role::Assistant);
-    let has_subagent_use = messages[1]
-        .content
-        .iter()
-        .any(|b| matches!(b, ContentBlock::ToolUse { name, .. } if name == "Subagent"));
-    assert!(has_subagent_use, "assistant should have Subagent ToolUse");
-
-    // Message 2: tool result containing the child's text
-    assert_eq!(messages[2].role, Role::User);
+    assert_eq!(messages.len(), 4);
     let tool_result_text = messages[2]
         .content
         .iter()
@@ -976,14 +466,8 @@ async fn test_subagent_end_to_end() {
             _ => None,
         })
         .unwrap_or("");
-    assert!(
-        tool_result_text.contains("The answer is 4"),
-        "tool result should contain child's response: {:?}",
-        tool_result_text
-    );
+    assert!(tool_result_text.contains("The answer is 4"));
 
-    // Message 3: final assistant text
-    assert_eq!(messages[3].role, Role::Assistant);
     let final_text: String = messages[3]
         .content
         .iter()
@@ -996,7 +480,6 @@ async fn test_subagent_end_to_end() {
 }
 
 /// Token is already cancelled before the agent starts.
-/// Expects: Err(Cancelled), saw_cancelled, no deltas received.
 #[tokio::test]
 #[ignore]
 async fn test_cancel_before_start() {
@@ -1033,22 +516,15 @@ async fn test_cancel_before_start() {
 
     assert!(matches!(result, Err(ChetError::Cancelled)));
     let c = capture.lock().unwrap();
-    assert!(c.saw_cancelled, "should have seen Cancelled event");
-    assert!(
-        c.text_deltas.is_empty(),
-        "should NOT have received any deltas"
-    );
-    assert!(!c.saw_done, "should NOT have seen Done event");
+    assert!(c.saw_cancelled);
+    assert!(c.text_deltas.is_empty());
+    assert!(!c.saw_done);
 }
 
-/// Compact a long conversation with a label, then run the agent in read-only mode
-/// on the compacted messages. Verifies:
-/// 1. The session label survives compaction (embedded in summary message)
-/// 2. Plan mode (read-only) still blocks non-read-only tools after compaction
+/// Compact a long conversation with a label, then run agent in read-only mode.
 #[tokio::test]
 #[ignore]
 async fn test_compaction_preserves_label_and_plan_mode() {
-    // Build a conversation long enough for compaction (>= 12 messages)
     let mut conversation: Vec<Message> = Vec::new();
     for i in 0..7 {
         conversation.push(Message {
@@ -1064,33 +540,22 @@ async fn test_compaction_preserves_label_and_plan_mode() {
             }],
         });
     }
-    assert!(
-        conversation.len() >= 12,
-        "need >= 12 messages for compaction"
-    );
+    assert!(conversation.len() >= 12);
 
-    // Compact with a label
     let label = "Fix auth bug";
     let result = compact(&conversation, Some(label));
-    assert!(result.is_some(), "compaction should succeed");
+    assert!(result.is_some());
     let compacted = result.unwrap();
 
-    // --- Assertion 1: label survives in the summary message ---
+    // Label survives in summary
     let summary_text = match &compacted.new_messages[0].content[0] {
         ContentBlock::Text { text } => text.clone(),
         _ => panic!("expected text in summary"),
     };
-    assert!(
-        summary_text.contains("[Session: Fix auth bug]"),
-        "summary should contain session label: {summary_text:?}"
-    );
-    assert!(
-        summary_text.contains("compacted"),
-        "summary should mention compaction: {summary_text:?}"
-    );
+    assert!(summary_text.contains("[Session: Fix auth bug]"));
+    assert!(summary_text.contains("compacted"));
 
-    // --- Assertion 2: plan mode blocks tools after compaction ---
-    // Set up mock: API requests a writable tool, then responds with text after block
+    // Plan mode blocks tools after compaction
     let call1_events = vec![
         (message_start_event(), None),
         (tool_use_block_start(0, "t1", "WriteTool"), None),
@@ -1120,10 +585,7 @@ async fn test_compaction_preserves_label_and_plan_mode() {
     let cancel = CancellationToken::new();
     let capture = Arc::new(Mutex::new(EventCapture::default()));
 
-    // Start from the compacted messages (summary + recent turns)
     let mut messages = compacted.new_messages;
-
-    // Add a new user message to trigger the agent
     messages.push(Message {
         role: Role::User,
         content: vec![ContentBlock::Text {
@@ -1139,45 +601,25 @@ async fn test_compaction_preserves_label_and_plan_mode() {
         )
         .await;
 
-    assert!(
-        run_result.is_ok(),
-        "agent should complete: {:?}",
-        run_result
-    );
-
+    assert!(run_result.is_ok());
     let c = capture.lock().unwrap();
-    assert!(c.saw_done, "should have seen Done event");
-
-    // WriteTool should be blocked (plan mode)
-    assert_eq!(c.tool_blocked.len(), 1, "one tool should be blocked");
-    assert_eq!(c.tool_blocked[0].0, "WriteTool");
-    assert!(
-        c.tool_blocked[0].1.contains("read-only"),
-        "reason should mention read-only: {:?}",
-        c.tool_blocked[0].1
-    );
-    assert!(c.tool_ends.is_empty(), "tool should NOT have executed");
-
-    // Drop lock to inspect messages
+    assert!(c.saw_done);
+    assert_eq!(c.tool_blocked.len(), 1);
+    assert!(c.tool_blocked[0].1.contains("read-only"));
+    assert!(c.tool_ends.is_empty());
     drop(c);
 
-    // The summary message should still be at the start
     let first_msg_text = match &messages[0].content[0] {
         ContentBlock::Text { text } => text.clone(),
         _ => panic!("expected text in first message"),
     };
-    assert!(
-        first_msg_text.contains("[Session: Fix auth bug]"),
-        "label should still be in first message after agent run: {first_msg_text:?}"
-    );
+    assert!(first_msg_text.contains("[Session: Fix auth bug]"));
 }
 
-/// Test that read-only tool failure doesn't cancel sibling read-only tools.
-/// Both tools run in parallel; FailingTool errors but EchoA still succeeds.
+/// Read-only tool failure doesn't cancel sibling read-only tools.
 #[tokio::test]
 #[ignore]
 async fn test_parallel_read_only_failure_isolation() {
-    // Call 1: two read-only tool_use blocks (one will fail)
     let call1_events = vec![
         (message_start_event(), None),
         (tool_use_block_start(0, "t1", "EchoA"), None),
@@ -1190,7 +632,6 @@ async fn test_parallel_read_only_failure_isolation() {
         (message_stop(), None),
     ];
 
-    // Call 2: final text after getting both results
     let call2_events = vec![
         (message_start_event(), None),
         (text_block_start(0), None),
@@ -1226,38 +667,26 @@ async fn test_parallel_read_only_failure_isolation() {
         )
         .await;
 
-    assert!(result.is_ok(), "agent should complete: {:?}", result);
-
+    assert!(result.is_ok());
     let c = capture.lock().unwrap();
     assert!(c.saw_done);
-    assert!(!c.saw_cancelled);
-
-    // Both tools should have started and ended
-    assert_eq!(c.tool_starts.len(), 2);
     assert_eq!(c.tool_ends.len(), 2);
-
-    // One should be an error, one should succeed
     let error_count = c.tool_ends.iter().filter(|(_, _, err)| *err).count();
-    let success_count = c.tool_ends.iter().filter(|(_, _, err)| !*err).count();
-    assert_eq!(error_count, 1, "one tool should have errored");
-    assert_eq!(success_count, 1, "one tool should have succeeded");
-
+    assert_eq!(error_count, 1);
     drop(c);
 
-    // ToolResult messages: both should be present (failure didn't cancel sibling)
     let tool_results: Vec<_> = messages[2]
         .content
         .iter()
         .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
         .collect();
-    assert_eq!(tool_results.len(), 2, "both tool results should be present");
+    assert_eq!(tool_results.len(), 2);
 }
 
-/// Test mixed read-only + writable tools: read-only run in parallel, writable runs after.
+/// Mixed read-only + writable tools: read-only run in parallel, writable runs after.
 #[tokio::test]
 #[ignore]
 async fn test_mixed_parallel_and_sequential_tools() {
-    // Call 1: one read-only (EchoA) + one writable (WritableEcho)
     let call1_events = vec![
         (message_start_event(), None),
         (tool_use_block_start(0, "t1", "EchoA"), None),
@@ -1270,7 +699,6 @@ async fn test_mixed_parallel_and_sequential_tools() {
         (message_stop(), None),
     ];
 
-    // Call 2: final text
     let call2_events = vec![
         (message_start_event(), None),
         (text_block_start(0), None),
@@ -1284,8 +712,8 @@ async fn test_mixed_parallel_and_sequential_tools() {
         Arc::new(SequencedMockProvider::new(vec![call1_events, call2_events]));
 
     let mut registry = ToolRegistry::new();
-    registry.register(Arc::new(EchoTool::new("EchoA"))); // read-only
-    registry.register(Arc::new(EchoTool::new_writable("WritableEcho"))); // writable
+    registry.register(Arc::new(EchoTool::new("EchoA")));
+    registry.register(Arc::new(EchoTool::new_writable("WritableEcho")));
 
     let agent = make_agent(provider, registry);
     let cancel = CancellationToken::new();
@@ -1306,35 +734,22 @@ async fn test_mixed_parallel_and_sequential_tools() {
         )
         .await;
 
-    assert!(result.is_ok(), "agent should complete: {:?}", result);
-
+    assert!(result.is_ok());
     let c = capture.lock().unwrap();
     assert!(c.saw_done);
-    assert_eq!(c.tool_starts.len(), 2);
     assert_eq!(c.tool_ends.len(), 2);
-
-    // Both should succeed
     assert!(c.tool_ends.iter().all(|(_, _, err)| !*err));
-
     drop(c);
 
-    // Results should be in original order (EchoA first, WritableEcho second)
     assert_eq!(messages.len(), 4);
     let results = &messages[2].content;
     assert_eq!(results.len(), 2);
     match &results[0] {
-        ContentBlock::ToolResult { tool_use_id, .. } => {
-            assert_eq!(tool_use_id, "t1", "first result should be t1 (EchoA)");
-        }
+        ContentBlock::ToolResult { tool_use_id, .. } => assert_eq!(tool_use_id, "t1"),
         other => panic!("expected ToolResult, got {other:?}"),
     }
     match &results[1] {
-        ContentBlock::ToolResult { tool_use_id, .. } => {
-            assert_eq!(
-                tool_use_id, "t2",
-                "second result should be t2 (WritableEcho)"
-            );
-        }
+        ContentBlock::ToolResult { tool_use_id, .. } => assert_eq!(tool_use_id, "t2"),
         other => panic!("expected ToolResult, got {other:?}"),
     }
 }

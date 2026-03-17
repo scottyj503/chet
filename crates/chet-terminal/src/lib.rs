@@ -5,12 +5,14 @@ mod completion;
 mod editor;
 pub mod highlight;
 mod history;
+mod inline;
 mod keys;
 pub mod markdown;
 mod render;
 pub mod spinner;
 pub mod statusline;
 pub mod style;
+mod table;
 
 pub use completion::{Completer, SlashCommandCompleter};
 pub use editor::{LineEditor, ReadLineResult};

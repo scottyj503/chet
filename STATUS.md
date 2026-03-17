@@ -165,6 +165,23 @@ Bugs found and fixed:
 - ~~**`autoMemoryDirectory` setting**~~: **DONE** — `memory_dir` in config.toml overrides default `~/.chet/memory/`. Resolved in `ChetConfig`, flows through `MemoryManager` and both memory tools.
 - ~~**Token estimation audit**~~: **DONE** — Thinking blocks excluded (not in input context). Text uses chars/3.5 (was chars/4). JSON/tool inputs use chars/5. ToolUse/ToolResult add fixed overhead for IDs. 4 new tests.
 
+## Coding Standards
+
+### File Size Convention
+Enforced by CI (`file-size` job in `.github/workflows/ci.yml`):
+
+- **Source files**: Max **650 production lines** (lines before `#[cfg(test)]`). Inline unit tests don't count toward the limit.
+- **Integration test files** (in `tests/` dirs): Max **800 total lines**.
+- **Binary entry points** (`main.rs`): Should be a thin wrapper (~150-250 lines). Delegate to modules.
+
+When a file exceeds the limit, split by single responsibility into submodules. Re-export the public API from the parent module so callers don't change.
+
+### Module Organization
+- `chet-cli/src/`: `main.rs` (entry), `repl.rs`, `commands.rs`, `runner.rs`, `plan.rs`, `prompts.rs`, `prompt.rs`
+- `chet-terminal/src/`: `markdown.rs` (renderer), `inline.rs` (inline formatting), `table.rs` (table rendering)
+- `chet-core/tests/`: `common/mod.rs` (shared test harness), `cancellation_integration.rs`
+- Run `cargo fmt --all` before committing. CI checks formatting.
+
 ## Decisions Log
 
 | Date | Decision | Rationale |

@@ -54,6 +54,45 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-targets
 
+  file-size:
+    name: File Size Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check source file sizes
+        run: |
+          MAX_SRC=650
+          MAX_TEST=800
+          EXIT=0
+          for f in $(find crates -name '*.rs' -not -path '*/target/*'); do
+            total=$(wc -l < "$f")
+            if echo "$f" | grep -q '/tests/'; then
+              # Integration test files: count total lines
+              if [ "$total" -gt "$MAX_TEST" ]; then
+                echo "::warning file=$f::$f has $total lines (limit: $MAX_TEST)"
+                EXIT=1
+              fi
+            else
+              # Source files: count only production lines (before #[cfg(test)])
+              test_start=$(grep -n '#\[cfg(test)\]' "$f" | head -1 | cut -d: -f1)
+              if [ -n "$test_start" ]; then
+                prod=$((test_start - 1))
+              else
+                prod=$total
+              fi
+              if [ "$prod" -gt "$MAX_SRC" ]; then
+                echo "::warning file=$f::$f has $prod production lines (limit: $MAX_SRC)"
+                EXIT=1
+              fi
+            fi
+          done
+          if [ "$EXIT" -ne 0 ]; then
+            echo ""
+            echo "Files above the line limit. Split by responsibility."
+            echo "Source files: ${MAX_SRC} production lines | Test files: ${MAX_TEST} total lines"
+            exit 1
+          fi
+
   deny:
     name: Cargo Deny
     runs-on: ubuntu-latest
