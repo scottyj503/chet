@@ -1,4 +1,7 @@
-//! Utility functions for safe string handling.
+//! Utility functions for safe string handling and atomic file I/O.
+
+use std::io;
+use std::path::Path;
 
 /// Find the largest byte index <= `i` that is on a UTF-8 char boundary.
 fn floor_char_boundary(s: &str, i: usize) -> usize {
@@ -27,6 +30,17 @@ pub fn truncate_string(s: &mut String, max_bytes: usize) {
     if s.len() > max_bytes {
         s.truncate(floor_char_boundary(s, max_bytes));
     }
+}
+
+/// Write content to a file atomically via a temporary file + rename.
+/// Prevents corruption from crashes or concurrent writes.
+pub fn atomic_write_file(path: &Path, content: &[u8]) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, content)?;
+    std::fs::rename(&tmp, path)
 }
 
 #[cfg(test)]
@@ -95,6 +109,33 @@ mod tests {
         let mut s = String::from("hi");
         truncate_string(&mut s, 10);
         assert_eq!(s, "hi");
+    }
+
+    #[test]
+    fn atomic_write_file_creates_and_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        atomic_write_file(&path, b"hello world").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello world");
+        // tmp file should not remain
+        assert!(!path.with_extension("tmp").exists());
+    }
+
+    #[test]
+    fn atomic_write_file_creates_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sub").join("dir").join("file.txt");
+        atomic_write_file(&path, b"nested").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "nested");
+    }
+
+    #[test]
+    fn atomic_write_file_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        atomic_write_file(&path, b"first").unwrap();
+        atomic_write_file(&path, b"second").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
     }
 
     #[test]

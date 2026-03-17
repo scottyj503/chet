@@ -117,7 +117,10 @@ impl SessionStore {
     ) -> Result<PathBuf, SessionError> {
         let filename = format!("{}-compact-{}.md", session_id, compaction_number);
         let path = self.sessions_dir.join(filename);
-        tokio::fs::write(&path, markdown).await?;
+        // Atomic write for consistency (even though archives are write-once)
+        let tmp = path.with_extension("tmp");
+        tokio::fs::write(&tmp, markdown).await?;
+        tokio::fs::rename(&tmp, &path).await?;
         Ok(path)
     }
 

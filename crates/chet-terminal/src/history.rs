@@ -45,20 +45,15 @@ impl History {
         }
     }
 
-    /// Save history to disk.
+    /// Save history to disk atomically (tmp file + rename).
     pub fn save(&self) -> io::Result<()> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)?;
-        }
         let content = self.entries.join("\n");
-        fs::write(
-            &self.path,
-            if content.is_empty() {
-                content
-            } else {
-                content + "\n"
-            },
-        )
+        let bytes = if content.is_empty() {
+            content.into_bytes()
+        } else {
+            (content + "\n").into_bytes()
+        };
+        chet_types::atomic_write_file(&self.path, &bytes)
     }
 
     /// Add an entry to history. Skips consecutive duplicates and empty strings.

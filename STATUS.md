@@ -132,7 +132,7 @@ Bugs found and fixed:
 - **Session flush on disconnect**: Flush session data before hooks/analytics on SSH disconnect or connection drop. Critical for remote/CI usage.
 - ~~**Auto-memory**~~: **DONE** — MemoryRead/MemoryWrite tools + `/memory` command. Global (`~/.chet/memory/MEMORY.md`) and per-project (`~/.chet/memory/projects/<hash>.md`) scopes. Loaded into system prompt, refreshed after each turn. Atomic writes, $EDITOR support, worktree-safe (hashes original cwd).
 - ~~**Smarter bash permission prefixes**~~: **DONE** — Compound commands split on `&&`, `||`, `;`, `|` (quote-aware) for per-subcommand rule matching. `command:rm *` now catches `cd /tmp && rm -rf /`. 11 new tests.
-- **Config file corruption prevention**: Atomic writes / file locking when multiple instances (or parallel agents) touch config simultaneously.
+- ~~**Config file corruption prevention**~~: **DONE** — All file writes now use atomic tmp+rename: history, Write tool, Edit tool, plan files, compaction archives (sessions and memory already had it). `atomic_write_file` utility in chet-types. 3 new tests.
 - **Tool result disk persistence**: Persist tool results >50K chars to disk instead of keeping in context. Reduces context window usage for long sessions.
 - **`/copy` command**: Interactive picker to select and copy individual code blocks or full response from agent output.
 - **`/model` human-readable labels**: Show "Sonnet 4.5" instead of raw model IDs in model picker, with upgrade hints for newer versions.

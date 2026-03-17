@@ -1288,8 +1288,15 @@ async fn save_plan_file(
     let filename = format!("{}-{}.md", session.short_id(), timestamp);
     let path = plans_dir.join(&filename);
 
-    match tokio::fs::write(&path, plan_text).await {
-        Ok(()) => Some(path),
+    let tmp = path.with_extension("tmp");
+    match tokio::fs::write(&tmp, plan_text).await {
+        Ok(()) => match tokio::fs::rename(&tmp, &path).await {
+            Ok(()) => Some(path),
+            Err(e) => {
+                eprintln!("Warning: failed to save plan file: {e}");
+                None
+            }
+        },
         Err(e) => {
             eprintln!("Warning: failed to save plan file: {e}");
             None

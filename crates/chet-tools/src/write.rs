@@ -65,7 +65,12 @@ impl Tool for WriteTool {
                 })?;
             }
 
-            tokio::fs::write(path, &input.content)
+            // Atomic write: tmp file + rename to prevent corruption
+            let tmp = path.with_extension("chet-tmp");
+            tokio::fs::write(&tmp, &input.content)
+                .await
+                .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
+            tokio::fs::rename(&tmp, path)
                 .await
                 .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
 

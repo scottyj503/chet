@@ -101,7 +101,13 @@ impl Tool for EditTool {
                 content.replacen(&input.old_string, &input.new_string, 1)
             };
 
-            tokio::fs::write(&input.file_path, &new_content)
+            // Atomic write: tmp file + rename to prevent corruption
+            let path = std::path::Path::new(&input.file_path);
+            let tmp = path.with_extension("chet-tmp");
+            tokio::fs::write(&tmp, &new_content)
+                .await
+                .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
+            tokio::fs::rename(&tmp, path)
                 .await
                 .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
 
