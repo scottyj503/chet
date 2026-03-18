@@ -139,13 +139,13 @@ Bugs found and fixed:
 - ~~**`/model` human-readable labels**~~: **DONE** — `/model` shows "sonnet-4.5 (claude-sonnet-4-5-20250929)". `/sessions` list also uses short names. Reuses existing `shorten_model_name`.
 - **HTTP hooks**: Hooks can POST JSON to a URL and receive JSON back instead of running shell commands. Enables webhook integrations (Slack, CI status) without shell script wrappers.
 - ~~**Effort levels**~~: **DONE** — `--effort` CLI flag (low/medium/high) maps to thinking budget_tokens (1024/8192/32768). `/effort` REPL command for per-turn changes. Effort shown in spinner and startup banner. Explicit `--thinking-budget` takes precedence.
-- **Agent name in terminal title**: Update terminal title when running `--agent <name>` or subagents. Useful for multi-terminal workflows and CI/CD logs.
-- **`InstructionsLoaded` hook event**: Fires when CLAUDE.md / rules files load into context. Useful for validation hooks.
-- **Concise subagent reports**: Reduce token usage on multi-agent tasks with shorter subagent result summaries.
+- ~~**Agent name in terminal title**~~: **DONE** — Terminal title set to "chet — <session-id>" on start, updated to "chet — <label>" when auto-label fires, reset on exit. OSC escape sequence, TTY-only.
+- ~~**`InstructionsLoaded` hook event**~~: **DONE** — `instructions_loaded` hook fires after system prompt (with memory) is set at session start. Enables validation hooks on loaded instructions.
+- ~~**Concise subagent reports**~~: **DONE** — Subagent results truncated at 10K chars with "(subagent output truncated from N chars)" marker. Keeps parent context lean.
 - ~~**`/resume` shows most recent prompt**~~: **DONE** — `preview()` now returns the last user text message instead of the first. `/sessions` list shows the most recent prompt for each session. 1 new test.
-- **Skip compaction preamble recap**: Resuming after compaction skips the recap. Saves tokens, cleaner UX.
+- ~~**Skip compaction preamble recap**~~: **DONE** — Compaction summary shortened from verbose "[This conversation was compacted...]" to terse "[Compacted conversation summary:]". Saves ~15 tokens per compaction.
 - **Compaction preserves images for cache reuse**: Keep images in compaction summarizer request so prompt cache can be reused. Faster and cheaper compaction.
-- **Skip skill re-injection on `/resume`**: Don't re-inject skill listing when resuming sessions (~600 tokens saved per resume).
+- ~~**Skip skill re-injection on `/resume`**~~: **N/A** — Chet has no skill injection system. No action needed.
 - **MCP binary content to disk**: MCP tools returning PDFs/Office docs/audio save decoded bytes to disk with correct extension instead of dumping base64 into context.
 - ~~**Increased output token limits**~~: **DONE** — Default max_tokens bumped from 16k to 64k.
 - ~~**`/effort auto`**~~: **DONE** — `/effort auto` resets effort to default (no explicit thinking budget). Help text and error messages updated.

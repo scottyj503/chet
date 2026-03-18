@@ -283,9 +283,7 @@ fn build_summary_message(facts: &[String], label: Option<&str>) -> Message {
         text.push_str(&format!("[Session: {label}]\n\n"));
     }
 
-    text.push_str(
-        "[This conversation was compacted. Key facts from the earlier conversation:]\n\n",
-    );
+    text.push_str("[Compacted conversation summary:]\n\n");
 
     if facts.is_empty() {
         text.push_str("- (No specific facts extracted from the compacted portion)\n");

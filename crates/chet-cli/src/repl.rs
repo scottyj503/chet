@@ -10,6 +10,7 @@ use chet_terminal::{
 };
 use chet_types::{Effort, provider::Provider};
 use chrono::Utc;
+use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 use crate::commands::{self, SlashResult};
@@ -46,6 +47,24 @@ pub(crate) async fn repl(
     let mut memory_section = memory_manager.load_combined(project_id.as_deref()).await;
     let mut system = system_prompt(cwd, &memory_section);
     agent.set_system_prompt(system.clone());
+
+    // Fire InstructionsLoaded hook
+    let _ = hooks_engine
+        .run_hooks(
+            &chet_permissions::HookEvent::InstructionsLoaded,
+            &chet_permissions::HookInput {
+                event: chet_permissions::HookEvent::InstructionsLoaded,
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+                is_error: None,
+                worktree_path: None,
+                worktree_source: None,
+                messages_removed: None,
+                messages_remaining: None,
+            },
+        )
+        .await;
 
     // Load or create session
     let mut session = match &resume_id {
@@ -105,6 +124,11 @@ pub(crate) async fn repl(
         session.short_id()
     );
     eprintln!("Type your message. Press Ctrl+D to exit.\n");
+
+    // Set terminal title (TTY only)
+    if stderr_is_tty {
+        set_terminal_title(&format!("chet — {}", session.short_id()));
+    }
 
     // Create status line (TTY only)
     let status_line: Option<Arc<Mutex<StatusLine>>> = if stderr_is_tty {
@@ -286,6 +310,13 @@ pub(crate) async fn repl(
                 session.updated_at = Utc::now();
                 session.auto_label();
 
+                // Update terminal title with session label
+                if stderr_is_tty {
+                    if let Some(label) = &session.metadata.label {
+                        set_terminal_title(&format!("chet — {label}"));
+                    }
+                }
+
                 // In plan mode, save plan to file and prompt for approval
                 if plan_mode {
                     if let Some(plan_text) = plan::extract_last_assistant_text(&session.messages) {
@@ -396,6 +427,17 @@ pub(crate) async fn repl(
         manager.shutdown().await;
     }
 
+    // Reset terminal title
+    if stderr_is_tty {
+        set_terminal_title("Terminal");
+    }
+
     print_usage(&session.total_usage);
     Ok(())
+}
+
+/// Set the terminal title via OSC escape sequence.
+fn set_terminal_title(title: &str) {
+    let _ = write!(std::io::stderr(), "\x1b]0;{title}\x07");
+    let _ = std::io::stderr().flush();
 }

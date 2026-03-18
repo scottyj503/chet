@@ -184,14 +184,25 @@ impl chet_types::Tool for SubagentTool {
 
             // Run silently — no-op event callback
             let cancel = CancellationToken::new();
+            /// Maximum chars for subagent result text returned to the parent.
+            /// Keeps parent context lean on multi-agent tasks.
+            const MAX_SUBAGENT_RESULT_CHARS: usize = 10_000;
+
             let result = match child.run(&mut messages, cancel, |_| {}).await {
                 Ok(_usage) => {
-                    let text = extract_assistant_text(&messages);
+                    let mut text = extract_assistant_text(&messages);
                     if text.is_empty() {
                         Ok(ToolOutput::error(
                             "Subagent completed but produced no text output".to_string(),
                         ))
                     } else {
+                        if text.len() > MAX_SUBAGENT_RESULT_CHARS {
+                            text = format!(
+                                "{}\n\n(subagent output truncated from {} chars)",
+                                chet_types::truncate_str(&text, MAX_SUBAGENT_RESULT_CHARS),
+                                text.len()
+                            );
+                        }
                         Ok(ToolOutput::text(text))
                     }
                 }

@@ -553,7 +553,7 @@ async fn test_compaction_preserves_label_and_plan_mode() {
         _ => panic!("expected text in summary"),
     };
     assert!(summary_text.contains("[Session: Fix auth bug]"));
-    assert!(summary_text.contains("compacted"));
+    assert!(summary_text.contains("Compacted"));
 
     // Plan mode blocks tools after compaction
     let call1_events = vec![

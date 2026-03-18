@@ -69,6 +69,7 @@ pub enum HookEvent {
     WorktreeCreate,
     WorktreeRemove,
     PostCompact,
+    InstructionsLoaded,
 }
 
 /// Configuration for a single hook script.
