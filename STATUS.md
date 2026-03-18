@@ -155,7 +155,7 @@ Bugs found and fixed:
 - ~~**`PostCompact` hook event**~~: **DONE** — `post_compact` hook fires after `/compact` with `messages_removed` and `messages_remaining` in the JSON payload.
 - ~~**`/context` actionable suggestions**~~: **DONE** — `/context` now suggests `/compact` at >50%/>80% usage and warns about large system prompts (>20% of context window) with `/memory reset` hint.
 - ~~**Parallel tool failure isolation**~~: **DONE** — Read-only tools (Read, Glob, Grep, MemoryRead) now execute in parallel via `join_all`. Mutating tools run sequentially after. Failures produce per-tool error results without affecting siblings. Permission checks and hooks remain sequential (may prompt user).
-- **Strip progress messages during compaction**: Prevent memory growth from progress payloads surviving compaction in long sessions.
+- ~~**Strip progress messages during compaction**~~: **DONE** — Recent messages preserved after compaction now have large ToolResult text truncated (>4000 chars) and Thinking blocks removed. Prevents context bloat from file reads, grep outputs, and bash outputs surviving compaction. 4 new tests.
 - **Background bash output kill limit**: Kill background bash tasks if output exceeds 5GB to prevent runaway processes from filling disk.
 - **Session auto-naming from plan content**: When user accepts a plan, use the plan's content/heading for session name.
 - **MCP elicitation**: MCP servers can request structured input mid-task via interactive dialog (form fields). New JSON-RPC protocol extension.
@@ -164,6 +164,11 @@ Bugs found and fixed:
 - **Auto-compaction circuit breaker**: If auto-compaction is added, stop retrying after 3 consecutive failures.
 - ~~**`autoMemoryDirectory` setting**~~: **DONE** — `memory_dir` in config.toml overrides default `~/.chet/memory/`. Resolved in `ChetConfig`, flows through `MemoryManager` and both memory tools.
 - ~~**Token estimation audit**~~: **DONE** — Thinking blocks excluded (not in input context). Text uses chars/3.5 (was chars/4). JSON/tool inputs use chars/5. ToolUse/ToolResult add fixed overhead for IDs. 4 new tests.
+- **`StopFailure` hook event**: Fire hook when a turn ends due to API error (rate limit, auth failure, etc.). Enables error monitoring and alerting integrations.
+- **MCP deny rule enforcement**: Deny rules should filter MCP tools from the API request entirely, not just block execution. Model should never see denied tools.
+- **Worktree hooks/config loading**: `--worktree` should load hooks and config from the worktree directory, not just the original repo.
+- **Custom model option**: Env var or config setting to add custom model entries to the model picker (useful for custom endpoints, Bedrock inference profiles).
+- **Agent frontmatter**: Per-agent config fields (`effort`, `max_turns`, `disallowed_tools`) for agent definitions. Requires agent definition system first.
 
 ## Coding Standards
 

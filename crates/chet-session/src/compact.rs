@@ -47,7 +47,7 @@ pub fn compact(messages: &[Message], label: Option<&str>) -> Option<CompactionRe
     let summary_msg = build_summary_message(&facts, label);
 
     let mut new_messages = vec![summary_msg];
-    new_messages.extend_from_slice(recent_messages);
+    new_messages.extend(recent_messages.iter().map(strip_heavy_payloads));
 
     Some(CompactionResult {
         archive_markdown,
@@ -160,6 +160,59 @@ fn extract_key_facts(messages: &[Message]) -> Vec<String> {
     }
 
     facts
+}
+
+/// Maximum chars for a tool result text block in preserved (recent) messages.
+/// Longer results are truncated with a marker. This prevents large file reads,
+/// grep outputs, and bash outputs from bloating context after compaction.
+const MAX_TOOL_RESULT_CHARS: usize = 4000;
+
+/// Strip heavy payloads from a message to reduce context bloat after compaction.
+/// - Truncates large ToolResult text blocks
+/// - Removes Thinking blocks (output-only, not counted in input context)
+fn strip_heavy_payloads(msg: &Message) -> Message {
+    let content = msg
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
+                let stripped_content = content
+                    .iter()
+                    .map(|c| match c {
+                        chet_types::ToolResultContent::Text { text }
+                            if text.len() > MAX_TOOL_RESULT_CHARS =>
+                        {
+                            chet_types::ToolResultContent::Text {
+                                text: format!(
+                                    "{}\n... (truncated from {} chars during compaction)",
+                                    chet_types::truncate_str(text, MAX_TOOL_RESULT_CHARS),
+                                    text.len()
+                                ),
+                            }
+                        }
+                        other => other.clone(),
+                    })
+                    .collect();
+                Some(ContentBlock::ToolResult {
+                    tool_use_id: tool_use_id.clone(),
+                    content: stripped_content,
+                    is_error: *is_error,
+                })
+            }
+            // Drop thinking blocks — they're not part of input context
+            ContentBlock::Thinking { .. } => None,
+            other => Some(other.clone()),
+        })
+        .collect();
+
+    Message {
+        role: msg.role,
+        content,
+    }
 }
 
 /// Convert the full conversation to a markdown archive.
@@ -391,6 +444,130 @@ mod tests {
             _ => panic!("expected text"),
         };
         assert!(summary_text.contains("[Session: Fix auth bug]"));
+    }
+
+    #[test]
+    fn strip_heavy_payloads_truncates_large_tool_results() {
+        let big_text = "x".repeat(10_000);
+        let msg = Message {
+            role: Role::User,
+            content: vec![ContentBlock::ToolResult {
+                tool_use_id: "t1".into(),
+                content: vec![ToolResultContent::Text { text: big_text }],
+                is_error: None,
+            }],
+        };
+        let stripped = strip_heavy_payloads(&msg);
+        if let ContentBlock::ToolResult { content, .. } = &stripped.content[0] {
+            if let ToolResultContent::Text { text } = &content[0] {
+                assert!(text.len() < 5000, "should be truncated: len={}", text.len());
+                assert!(text.contains("truncated"));
+            } else {
+                panic!("expected text");
+            }
+        } else {
+            panic!("expected ToolResult");
+        }
+    }
+
+    #[test]
+    fn strip_heavy_payloads_preserves_small_tool_results() {
+        let msg = Message {
+            role: Role::User,
+            content: vec![ContentBlock::ToolResult {
+                tool_use_id: "t1".into(),
+                content: vec![ToolResultContent::Text {
+                    text: "small output".into(),
+                }],
+                is_error: None,
+            }],
+        };
+        let stripped = strip_heavy_payloads(&msg);
+        if let ContentBlock::ToolResult { content, .. } = &stripped.content[0] {
+            if let ToolResultContent::Text { text } = &content[0] {
+                assert_eq!(text, "small output");
+            } else {
+                panic!("expected text");
+            }
+        } else {
+            panic!("expected ToolResult");
+        }
+    }
+
+    #[test]
+    fn strip_heavy_payloads_removes_thinking_blocks() {
+        let msg = Message {
+            role: Role::Assistant,
+            content: vec![
+                ContentBlock::Thinking {
+                    thinking: "very long thinking...".repeat(100),
+                    signature: None,
+                },
+                ContentBlock::Text {
+                    text: "answer".into(),
+                },
+            ],
+        };
+        let stripped = strip_heavy_payloads(&msg);
+        assert_eq!(stripped.content.len(), 1);
+        assert!(matches!(&stripped.content[0], ContentBlock::Text { .. }));
+    }
+
+    #[test]
+    fn compaction_strips_heavy_payloads_in_recent() {
+        let mut msgs = long_conversation();
+        // Add a large tool result in the recent window (near the end)
+        let big_result = "y".repeat(10_000);
+        msgs.push(Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text {
+                text: "another question".into(),
+            }],
+        });
+        msgs.push(Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::ToolUse {
+                id: "t1".into(),
+                name: "Read".into(),
+                input: serde_json::json!({"file_path": "/big/file.rs"}),
+            }],
+        });
+        msgs.push(Message {
+            role: Role::User,
+            content: vec![ContentBlock::ToolResult {
+                tool_use_id: "t1".into(),
+                content: vec![ToolResultContent::Text { text: big_result }],
+                is_error: None,
+            }],
+        });
+        msgs.push(Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text {
+                text: "done".into(),
+            }],
+        });
+
+        let result = compact(&msgs, None).unwrap();
+        // Find the tool result in recent messages
+        let has_truncated = result.new_messages.iter().any(|m| {
+            m.content.iter().any(|b| {
+                if let ContentBlock::ToolResult { content, .. } = b {
+                    content.iter().any(|c| {
+                        if let ToolResultContent::Text { text } = c {
+                            text.contains("truncated")
+                        } else {
+                            false
+                        }
+                    })
+                } else {
+                    false
+                }
+            })
+        });
+        assert!(
+            has_truncated,
+            "large tool result should be truncated in recent messages"
+        );
     }
 
     #[test]
