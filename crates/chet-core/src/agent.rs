@@ -1,5 +1,6 @@
 //! The core agent loop that orchestrates conversation with tool use.
 
+use crate::util::{persist_tool_result, truncate_for_display};
 use chet_permissions::{
     HookEvent, HookInput, PermissionDecision, PermissionEngine, PermissionLevel, PermissionRule,
     PromptResponse,
@@ -631,44 +632,6 @@ impl Agent {
             content,
             is_error: if output.is_error { Some(true) } else { None },
         }
-    }
-}
-
-/// Persist a large tool result to a temp file under the CWD.
-/// Returns the path on success, None on failure.
-fn persist_tool_result(
-    cwd: &std::path::Path,
-    tool_name: &str,
-    tool_id: &str,
-    text: &str,
-) -> Option<std::path::PathBuf> {
-    let dir = cwd.join(".chet-tool-output");
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        tracing::warn!("Failed to create tool output dir: {e}");
-        return None;
-    }
-    // Short ID to avoid long filenames
-    let short_id = if tool_id.len() > 8 {
-        &tool_id[..8]
-    } else {
-        tool_id
-    };
-    let filename = format!("{tool_name}-{short_id}.txt");
-    let path = dir.join(&filename);
-    match std::fs::write(&path, text) {
-        Ok(()) => Some(path),
-        Err(e) => {
-            tracing::warn!("Failed to persist tool result: {e}");
-            None
-        }
-    }
-}
-
-fn truncate_for_display(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", chet_types::truncate_str(s, max_len))
     }
 }
 
