@@ -105,6 +105,20 @@ impl PermissionEngine {
         }
     }
 
+    /// Check if a tool is statically blocked by rules (no args considered).
+    /// Used to filter tool definitions before sending to the API.
+    pub fn is_tool_blocked(&self, tool_name: &str) -> bool {
+        if self.ludicrous {
+            return false;
+        }
+        // Check static rules with empty input (no args to match)
+        if let Some(result) = RuleMatcher::evaluate(&self.rules, tool_name, &serde_json::json!({}))
+        {
+            return result.level == PermissionLevel::Block;
+        }
+        false
+    }
+
     /// Add a session-scoped permit rule (from "always allow" responses).
     /// Dies with the process — not persisted to config.
     /// Deduplicates by tool name + args to prevent unbounded growth.
@@ -232,5 +246,22 @@ mod tests {
         let e = engine(vec![]);
         let response = e.prompt("Bash", &json!({}), "test").await;
         assert_eq!(response, PromptResponse::Deny);
+    }
+
+    #[test]
+    fn test_is_tool_blocked() {
+        let e = engine(vec![
+            rule("Bash", None, PermissionLevel::Block),
+            rule("Read", None, PermissionLevel::Permit),
+        ]);
+        assert!(e.is_tool_blocked("Bash"));
+        assert!(!e.is_tool_blocked("Read"));
+        assert!(!e.is_tool_blocked("Write")); // no rule = not blocked
+    }
+
+    #[test]
+    fn test_is_tool_blocked_ludicrous() {
+        let e = PermissionEngine::ludicrous();
+        assert!(!e.is_tool_blocked("Bash")); // ludicrous = nothing blocked
     }
 }

@@ -1,6 +1,8 @@
 //! Internal utility functions for the agent loop.
 
+use chet_permissions::{HookEvent, HookInput, PermissionEngine};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Truncate a string for display, adding "..." if truncated.
 pub(crate) fn truncate_for_display(s: &str, max_len: usize) -> String {
@@ -38,5 +40,26 @@ pub(crate) fn persist_tool_result(
             tracing::warn!("Failed to persist tool result: {e}");
             None
         }
+    }
+}
+
+/// Fire StopFailure hook on API errors (best-effort, log-only).
+pub(crate) async fn fire_stop_failure_hook(permissions: &Arc<PermissionEngine>, error_msg: &str) {
+    let hook_input = HookInput {
+        event: HookEvent::StopFailure,
+        tool_name: None,
+        tool_input: None,
+        tool_output: Some(error_msg.to_string()),
+        is_error: Some(true),
+        worktree_path: None,
+        worktree_source: None,
+        messages_removed: None,
+        messages_remaining: None,
+    };
+    if let Err(msg) = permissions
+        .run_hooks(&HookEvent::StopFailure, &hook_input)
+        .await
+    {
+        tracing::warn!("stop_failure hook error: {msg}");
     }
 }

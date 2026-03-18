@@ -1,6 +1,6 @@
 //! The core agent loop that orchestrates conversation with tool use.
 
-use crate::util::{persist_tool_result, truncate_for_display};
+use crate::util::{fire_stop_failure_hook, persist_tool_result, truncate_for_display};
 use chet_permissions::{
     HookEvent, HookInput, PermissionDecision, PermissionEngine, PermissionLevel, PermissionRule,
     PromptResponse,
@@ -129,13 +129,16 @@ impl Agent {
                 }]
             });
 
-            // Build tool definitions with cache control on the last tool
+            // Build tool definitions with cache control on the last tool.
+            // Filter out tools that are statically blocked by permission rules —
+            // the model should never see denied tools.
             let tools = {
                 let mut defs = if self.read_only_mode {
                     self.registry.read_only_definitions()
                 } else {
                     self.registry.definitions()
                 };
+                defs.retain(|d| !self.permissions.is_tool_blocked(&d.name));
                 if let Some(last) = defs.last_mut() {
                     last.cache_control = Some(CacheControl::ephemeral());
                 }
@@ -281,10 +284,9 @@ impl Agent {
                                 }
                             }
                             Some(Ok(StreamEvent::Error { error })) => {
-                                on_event(AgentEvent::Error(format!(
-                                    "{}: {}",
-                                    error.error_type, error.message
-                                )));
+                                let msg = format!("{}: {}", error.error_type, error.message);
+                                on_event(AgentEvent::Error(msg.clone()));
+                                fire_stop_failure_hook(&self.permissions, &msg).await;
                                 return Err(chet_types::ChetError::Api(chet_types::ApiError::Server {
                                     status: 0,
                                     message: error.message,
@@ -293,6 +295,7 @@ impl Agent {
                             Some(Ok(_)) => {} // Ping, MessageStop
                             Some(Err(e)) => {
                                 on_event(AgentEvent::Error(e.to_string()));
+                                fire_stop_failure_hook(&self.permissions, &e.to_string()).await;
                                 return Err(chet_types::ChetError::Api(e));
                             }
                             None => break, // Stream ended

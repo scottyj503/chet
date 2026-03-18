@@ -53,6 +53,9 @@ pub struct SettingsFile {
     /// Per-agent configuration profiles.
     #[serde(default)]
     pub agents: std::collections::HashMap<String, AgentConfig>,
+    /// Custom model aliases (e.g. { "fast" = "claude-haiku-4-5-20251001" }).
+    #[serde(default)]
+    pub models: std::collections::HashMap<String, String>,
 }
 
 /// Per-agent configuration profile (used by SubagentTool and named agents).
@@ -142,12 +145,17 @@ impl ChetConfig {
                 key: "api_key (set ANTHROPIC_API_KEY or add to ~/.chet/config.toml)".into(),
             })?;
 
-        // Resolve model
-        let model = overrides
+        // Resolve model (with alias expansion from [models] section)
+        let raw_model = overrides
             .model
             .or_else(|| std::env::var("CHET_MODEL").ok())
             .or(global_settings.api.model)
             .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+        let model = global_settings
+            .models
+            .get(&raw_model)
+            .cloned()
+            .unwrap_or(raw_model);
 
         // Resolve max tokens
         let max_tokens = overrides
@@ -475,5 +483,30 @@ model = "claude-opus-4-6"
 "#;
         let settings: SettingsFile = toml::from_str(toml_str).unwrap();
         assert!(settings.agents.is_empty());
+    }
+
+    #[test]
+    fn test_settings_with_model_aliases() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+
+[models]
+fast = "claude-haiku-4-5-20251001"
+smart = "claude-opus-4-6"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(settings.models.len(), 2);
+        assert_eq!(settings.models["fast"], "claude-haiku-4-5-20251001");
+    }
+
+    #[test]
+    fn test_settings_models_defaults_to_empty() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert!(settings.models.is_empty());
     }
 }
