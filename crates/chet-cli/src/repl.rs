@@ -70,6 +70,7 @@ pub(crate) async fn repl(
         "/quit",
         "/exit",
         "/clear",
+        "/copy",
         "/cost",
         "/effort",
         "/help",

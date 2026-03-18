@@ -60,12 +60,17 @@ pub(crate) async fn handle_slash_command(
             Some(SlashResult::Continue)
         }
         "/model" => {
-            eprintln!("Current model: {}", session.metadata.model);
+            let short = chet_terminal::statusline::shorten_model_name(&session.metadata.model);
+            eprintln!("Current model: {} ({})", short, session.metadata.model);
             Some(SlashResult::Continue)
         }
         "/context" => {
             let info = context_tracker.estimate(&session.messages, Some(system_prompt));
             eprintln!("{}", context_tracker.format_detailed(&info));
+            Some(SlashResult::Continue)
+        }
+        "/copy" => {
+            handle_copy(&session.messages);
             Some(SlashResult::Continue)
         }
         "/compact" => {
@@ -166,12 +171,13 @@ async fn handle_sessions_list(store: &SessionStore) {
                 } else {
                     format!(" [{label}]")
                 };
+                let model_short = chet_terminal::statusline::shorten_model_name(&s.model);
                 eprintln!(
                     "  {} {:>8}  {:>3} msgs  {}{}  {}",
                     s.short_id(),
                     s.age(),
                     s.message_count,
-                    s.model,
+                    model_short,
                     label_str,
                     if s.preview.is_empty() {
                         "(empty)"
@@ -336,6 +342,84 @@ async fn open_editor(path: &std::path::Path, status_line: &Option<Arc<Mutex<Stat
     }
 }
 
+fn handle_copy(messages: &[chet_types::Message]) {
+    // Find the last assistant text
+    let text = messages.iter().rev().find_map(|m| {
+        if m.role == chet_types::Role::Assistant {
+            let parts: Vec<&str> = m
+                .content
+                .iter()
+                .filter_map(|b| match b {
+                    chet_types::ContentBlock::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect();
+            if parts.is_empty() {
+                None
+            } else {
+                Some(parts.join("\n"))
+            }
+        } else {
+            None
+        }
+    });
+
+    let Some(text) = text else {
+        eprintln!("No assistant response to copy.");
+        return;
+    };
+
+    // Try to copy to system clipboard
+    if copy_to_clipboard(&text) {
+        eprintln!("Copied {} chars to clipboard.", text.len());
+    } else {
+        // Fallback: print to stdout so user can pipe it
+        println!("{text}");
+        eprintln!("(clipboard not available — printed to stdout)");
+    }
+}
+
+/// Try to copy text to the system clipboard. Returns true on success.
+fn copy_to_clipboard(text: &str) -> bool {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    // Detect platform clipboard command
+    let (cmd, args): (&str, &[&str]) = if cfg!(target_os = "macos") {
+        ("pbcopy", &[])
+    } else if cfg!(target_os = "linux") {
+        // Try xclip first, then xsel
+        if Command::new("xclip").arg("--version").output().is_ok() {
+            ("xclip", &["-selection", "clipboard"])
+        } else if Command::new("xsel").arg("--version").output().is_ok() {
+            ("xsel", &["--clipboard", "--input"])
+        } else {
+            return false;
+        }
+    } else if cfg!(target_os = "windows") {
+        ("clip", &[])
+    } else {
+        return false;
+    };
+
+    let mut child = match Command::new(cmd)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(text.as_bytes());
+    }
+
+    child.wait().map(|s| s.success()).unwrap_or(false)
+}
+
 fn print_help() {
     eprintln!("Available commands:");
     eprintln!("  /help     — Show this help");
@@ -343,6 +427,7 @@ fn print_help() {
     eprintln!("  /plan     — Toggle plan mode (read-only exploration)");
     eprintln!("  /mcp      — Show connected MCP servers and tools");
     eprintln!("  /memory   — View/edit/reset persistent memory");
+    eprintln!("  /copy     — Copy last response to clipboard");
     eprintln!("  /model    — Show current model");
     eprintln!("  /cost     — Show token usage");
     eprintln!("  /context  — Show detailed context window usage");

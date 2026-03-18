@@ -42,12 +42,17 @@ impl Session {
     }
 
     /// Generate a preview string from the first user message.
+    /// Preview text for session listing — uses the *last* user text message
+    /// so `/sessions` shows the most recent prompt, not the first one.
     pub fn preview(&self) -> String {
-        for msg in &self.messages {
+        for msg in self.messages.iter().rev() {
             if msg.role == chet_types::Role::User {
                 for block in &msg.content {
                     if let chet_types::ContentBlock::Text { text } = block {
                         let trimmed = text.trim();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
                         if trimmed.len() > 80 {
                             return format!("{}...", chet_types::truncate_str(trimmed, 77));
                         }
@@ -192,6 +197,24 @@ mod tests {
         let mut session = Session::new("test".into(), "/tmp".into());
         session.auto_label();
         assert!(session.metadata.label.is_none());
+    }
+
+    #[test]
+    fn preview_shows_last_user_message() {
+        let mut session = Session::new("test".into(), "/tmp".into());
+        session
+            .messages
+            .push(text_msg(Role::User, "First question"));
+        session
+            .messages
+            .push(text_msg(Role::Assistant, "First answer"));
+        session
+            .messages
+            .push(text_msg(Role::User, "Most recent question"));
+        session
+            .messages
+            .push(text_msg(Role::Assistant, "Most recent answer"));
+        assert_eq!(session.preview(), "Most recent question");
     }
 
     #[test]

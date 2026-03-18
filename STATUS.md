@@ -69,7 +69,7 @@
 
 ## Test Summary
 
-- 418 unit tests passing (34 api, 13 config, 16 core/agent+subagent+worktree, 29 tools, 45 permissions, 57 session, 27 types, 153 terminal, 15 cli, 29 mcp)
+- 419 unit tests passing (34 api, 13 config, 16 core/agent+subagent+worktree, 29 tools, 45 permissions, 58 session, 27 types, 153 terminal, 15 cli, 29 mcp)
   - 10 agent integration tests (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state + 1 parallel-failure-isolation + 1 mixed-parallel-sequential)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
@@ -135,14 +135,14 @@ Bugs found and fixed:
 - ~~**Smarter bash permission prefixes**~~: **DONE** — Compound commands split on `&&`, `||`, `;`, `|` (quote-aware) for per-subcommand rule matching. `command:rm *` now catches `cd /tmp && rm -rf /`. 11 new tests.
 - ~~**Config file corruption prevention**~~: **DONE** — All file writes now use atomic tmp+rename: history, Write tool, Edit tool, plan files, compaction archives (sessions and memory already had it). `atomic_write_file` utility in chet-types. 3 new tests.
 - **Tool result disk persistence**: Persist tool results >50K chars to disk instead of keeping in context. Reduces context window usage for long sessions.
-- **`/copy` command**: Interactive picker to select and copy individual code blocks or full response from agent output.
-- **`/model` human-readable labels**: Show "Sonnet 4.5" instead of raw model IDs in model picker, with upgrade hints for newer versions.
+- ~~**`/copy` command**~~: **DONE** — Copies last assistant response to system clipboard (pbcopy/xclip/xsel/clip). Falls back to printing to stdout if clipboard unavailable.
+- ~~**`/model` human-readable labels**~~: **DONE** — `/model` shows "sonnet-4.5 (claude-sonnet-4-5-20250929)". `/sessions` list also uses short names. Reuses existing `shorten_model_name`.
 - **HTTP hooks**: Hooks can POST JSON to a URL and receive JSON back instead of running shell commands. Enables webhook integrations (Slack, CI status) without shell script wrappers.
 - ~~**Effort levels**~~: **DONE** — `--effort` CLI flag (low/medium/high) maps to thinking budget_tokens (1024/8192/32768). `/effort` REPL command for per-turn changes. Effort shown in spinner and startup banner. Explicit `--thinking-budget` takes precedence.
 - **Agent name in terminal title**: Update terminal title when running `--agent <name>` or subagents. Useful for multi-terminal workflows and CI/CD logs.
 - **`InstructionsLoaded` hook event**: Fires when CLAUDE.md / rules files load into context. Useful for validation hooks.
 - **Concise subagent reports**: Reduce token usage on multi-agent tasks with shorter subagent result summaries.
-- **`/resume` shows most recent prompt**: Resume picker shows last prompt instead of first for better session discovery.
+- ~~**`/resume` shows most recent prompt**~~: **DONE** — `preview()` now returns the last user text message instead of the first. `/sessions` list shows the most recent prompt for each session. 1 new test.
 - **Skip compaction preamble recap**: Resuming after compaction skips the recap. Saves tokens, cleaner UX.
 - **Compaction preserves images for cache reuse**: Keep images in compaction summarizer request so prompt cache can be reused. Faster and cheaper compaction.
 - **Skip skill re-injection on `/resume`**: Don't re-inject skill listing when resuming sessions (~600 tokens saved per resume).

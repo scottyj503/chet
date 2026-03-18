@@ -109,8 +109,9 @@ Options:
 | `/effort [level]`    | Show or set effort level (low, medium, high, auto) |
 | `/plan [description]` | Toggle plan mode; with description, starts immediately |
 | `/memory [subcommand]` | View/edit/reset persistent memory       |
+| `/copy`              | Copy last response to clipboard          |
 | `/mcp`               | Show connected MCP servers and tools     |
-| `/model`             | Show current model                       |
+| `/model`             | Show current model (human-readable name) |
 | `/cost`              | Show token usage                         |
 | `/context`           | Show detailed context window usage       |
 | `/compact`           | Compact conversation (archive + summarize) |
@@ -199,7 +200,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (418 tests — runs fast, no API key needed)
+# Unit tests (419 tests — runs fast, no API key needed)
 # 27 integration tests (ignored by default, run with --ignored)
 cargo test --workspace
 
