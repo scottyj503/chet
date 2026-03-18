@@ -69,7 +69,7 @@
 
 ## Test Summary
 
-- 414 unit tests passing (34 api, 13 config, 16 core/agent+subagent+worktree, 29 tools, 45 permissions, 57 session, 27 types, 153 terminal, 11 cli, 29 mcp)
+- 418 unit tests passing (34 api, 13 config, 16 core/agent+subagent+worktree, 29 tools, 45 permissions, 57 session, 27 types, 153 terminal, 15 cli, 29 mcp)
   - 10 agent integration tests (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state + 1 parallel-failure-isolation + 1 mixed-parallel-sequential)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
@@ -156,8 +156,8 @@ Bugs found and fixed:
 - ~~**`/context` actionable suggestions**~~: **DONE** — `/context` now suggests `/compact` at >50%/>80% usage and warns about large system prompts (>20% of context window) with `/memory reset` hint.
 - ~~**Parallel tool failure isolation**~~: **DONE** — Read-only tools (Read, Glob, Grep, MemoryRead) now execute in parallel via `join_all`. Mutating tools run sequentially after. Failures produce per-tool error results without affecting siblings. Permission checks and hooks remain sequential (may prompt user).
 - ~~**Strip progress messages during compaction**~~: **DONE** — Recent messages preserved after compaction now have large ToolResult text truncated (>4000 chars) and Thinking blocks removed. Prevents context bloat from file reads, grep outputs, and bash outputs surviving compaction. 4 new tests.
-- **Background bash output kill limit**: Kill background bash tasks if output exceeds 5GB to prevent runaway processes from filling disk.
-- **Session auto-naming from plan content**: When user accepts a plan, use the plan's content/heading for session name.
+- ~~**Background bash output kill limit**~~: **DONE** — Bash tool now spawns child with piped stdout/stderr, reads via `bounded_read` (cap per stream), and kills the process if total output exceeds 5GB. Prevents runaway processes from exhausting memory.
+- ~~**Session auto-naming from plan content**~~: **DONE** — When user approves a plan, the first heading (or first line) of the plan text becomes the session label (if not already named). `label_from_plan()` strips `#` prefixes, truncates to 60 chars. 4 new tests.
 - **MCP elicitation**: MCP servers can request structured input mid-task via interactive dialog (form fields). New JSON-RPC protocol extension.
 - **`allowRead` sandbox setting**: Re-allow read access within `denyRead` regions for fine-grained sandbox control.
 - **`ExitWorktree` tool**: Allow leaving a worktree session from within (counterpart to `EnterWorktree`).

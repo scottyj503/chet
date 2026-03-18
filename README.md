@@ -199,7 +199,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (414 tests — runs fast, no API key needed)
+# Unit tests (418 tests — runs fast, no API key needed)
 # 27 integration tests (ignored by default, run with --ignored)
 cargo test --workspace
 

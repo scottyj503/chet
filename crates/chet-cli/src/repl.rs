@@ -303,6 +303,16 @@ pub(crate) async fn repl(
 
                     match plan::prompt_plan_approval().await {
                         PlanApproval::Approve => {
+                            // Name session from plan content if not already named
+                            if session.metadata.label.is_none() {
+                                if let Some(plan_text) =
+                                    plan::extract_last_assistant_text(&session.messages)
+                                {
+                                    if let Some(label) = plan::label_from_plan(&plan_text) {
+                                        session.metadata.label = Some(label);
+                                    }
+                                }
+                            }
                             plan_mode = false;
                             agent.set_read_only_mode(false);
                             agent.set_system_prompt(system_prompt(cwd, &memory_section));

@@ -134,6 +134,24 @@ pub(crate) fn pop_last_turn(messages: &mut Vec<Message>) {
     }
 }
 
+/// Extract a session label from plan text.
+/// Uses the first markdown heading, or the first non-empty line, truncated to 60 chars.
+pub(crate) fn label_from_plan(plan_text: &str) -> Option<String> {
+    for line in plan_text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Strip markdown heading prefix
+        let label = trimmed.trim_start_matches('#').trim();
+        if label.is_empty() {
+            continue;
+        }
+        return Some(chet_types::truncate_str(label, 60).to_string());
+    }
+    None
+}
+
 fn is_tool_result_message(msg: &Message) -> bool {
     !msg.content.is_empty()
         && msg
@@ -245,5 +263,33 @@ mod tests {
     fn is_tool_result_message_false_for_text() {
         let msg = text_msg(Role::User, "hello");
         assert!(!is_tool_result_message(&msg));
+    }
+
+    #[test]
+    fn label_from_plan_uses_heading() {
+        let plan = "# Fix auth bug\n\nSome details about the plan.";
+        assert_eq!(label_from_plan(plan), Some("Fix auth bug".to_string()));
+    }
+
+    #[test]
+    fn label_from_plan_uses_first_line_if_no_heading() {
+        let plan = "Refactor the database layer\n\nMore details.";
+        assert_eq!(
+            label_from_plan(plan),
+            Some("Refactor the database layer".to_string())
+        );
+    }
+
+    #[test]
+    fn label_from_plan_truncates() {
+        let long_heading = format!("# {}", "a".repeat(100));
+        let label = label_from_plan(&long_heading).unwrap();
+        assert!(label.len() <= 60);
+    }
+
+    #[test]
+    fn label_from_plan_empty_returns_none() {
+        assert_eq!(label_from_plan(""), None);
+        assert_eq!(label_from_plan("   \n  \n"), None);
     }
 }

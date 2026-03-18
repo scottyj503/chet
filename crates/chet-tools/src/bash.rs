@@ -6,8 +6,12 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tokio::process::Command;
 
-/// Maximum output length before truncation.
+/// Maximum output length before truncation (in the returned tool result).
 const MAX_OUTPUT_BYTES: usize = 30_000;
+
+/// Maximum total output bytes before killing the process.
+/// Prevents runaway processes from filling memory (5 GB).
+const MAX_PROCESS_OUTPUT_BYTES: usize = 5 * 1024 * 1024 * 1024;
 
 /// Default timeout in milliseconds.
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
@@ -102,24 +106,29 @@ impl Tool for BashTool {
                 }
             };
 
+            let mut child = Command::new("bash")
+                .arg("-c")
+                .arg(&input.command)
+                .current_dir(&cwd)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| ToolError::ExecutionFailed(format!("Failed to spawn command: {e}")))?;
+
             let result = tokio::time::timeout(
                 std::time::Duration::from_millis(timeout_ms),
-                Command::new("bash")
-                    .arg("-c")
-                    .arg(&input.command)
-                    .current_dir(&cwd)
-                    .output(),
+                read_child_output(&mut child, MAX_PROCESS_OUTPUT_BYTES),
             )
             .await;
 
             let output = match result {
                 Ok(Ok(output)) => output,
                 Ok(Err(e)) => {
-                    return Err(ToolError::ExecutionFailed(format!(
-                        "Failed to spawn command: {e}"
-                    )));
+                    let _ = child.kill().await;
+                    return Err(ToolError::ExecutionFailed(e));
                 }
                 Err(_) => {
+                    let _ = child.kill().await;
                     return Err(ToolError::Timeout { timeout_ms });
                 }
             };
@@ -153,6 +162,13 @@ impl Tool for BashTool {
                 result_text.push_str(&stderr);
             }
 
+            if output.killed_for_output_limit {
+                result_text.push_str(&format!(
+                    "\n\n(process killed: output exceeded {} byte limit)",
+                    MAX_PROCESS_OUTPUT_BYTES
+                ));
+            }
+
             // Truncate if needed
             if result_text.len() > MAX_OUTPUT_BYTES {
                 chet_types::truncate_string(&mut result_text, MAX_OUTPUT_BYTES);
@@ -173,6 +189,81 @@ impl Tool for BashTool {
             })
         })
     }
+}
+
+/// Output captured from a child process.
+struct ChildOutput {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    status: std::process::ExitStatus,
+    killed_for_output_limit: bool,
+}
+
+/// Read stdout and stderr from a child process, killing it if total output exceeds `max_bytes`.
+async fn read_child_output(
+    child: &mut tokio::process::Child,
+    max_bytes: usize,
+) -> Result<ChildOutput, String> {
+    let stdout_reader = child.stdout.take().ok_or("No stdout pipe")?;
+    let stderr_reader = child.stderr.take().ok_or("No stderr pipe")?;
+
+    let killed;
+
+    // Read stdout and stderr concurrently with bounded reads.
+    // Each task reads up to max_bytes to prevent unbounded memory usage.
+    let max_per_stream = max_bytes;
+    let stdout_handle =
+        tokio::spawn(async move { bounded_read(stdout_reader, max_per_stream).await });
+    let stderr_handle =
+        tokio::spawn(async move { bounded_read(stderr_reader, max_per_stream).await });
+
+    let (stdout_result, stderr_result) = tokio::join!(stdout_handle, stderr_handle);
+    let stdout = stdout_result.unwrap_or(Ok(Vec::new())).unwrap_or_default();
+    let stderr = stderr_result.unwrap_or(Ok(Vec::new())).unwrap_or_default();
+
+    let total_bytes = stdout.len() + stderr.len();
+    if total_bytes > max_bytes {
+        let _ = child.kill().await;
+        killed = true;
+    } else {
+        killed = false;
+    }
+
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| format!("Failed to wait: {e}"))?;
+
+    Ok(ChildOutput {
+        stdout,
+        stderr,
+        status,
+        killed_for_output_limit: killed,
+    })
+}
+
+/// Read from an async reader up to `max_bytes`, then discard the rest.
+async fn bounded_read<R: tokio::io::AsyncRead + Unpin>(
+    mut reader: R,
+    max_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    use tokio::io::AsyncReadExt;
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 65536];
+    loop {
+        match reader.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(n) => {
+                if buf.len() < max_bytes {
+                    let take = n.min(max_bytes - buf.len());
+                    buf.extend_from_slice(&chunk[..take]);
+                }
+                // If over limit, keep reading to drain the pipe but don't store
+            }
+            Err(e) => return Err(format!("Read error: {e}")),
+        }
+    }
+    Ok(buf)
 }
 
 /// Extract the target directory from a simple `cd` command.
