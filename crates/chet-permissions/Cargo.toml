@@ -16,3 +16,4 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 globset = "0.4"
+reqwest = { workspace = true }

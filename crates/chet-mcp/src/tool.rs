@@ -69,13 +69,26 @@ impl chet_types::Tool for McpTool {
                 .into_iter()
                 .map(|c| match c {
                     McpToolContent::Text { text } => ToolOutputContent::Text { text },
-                    McpToolContent::Image { data, mime_type } => ToolOutputContent::Image {
-                        source: ImageSource {
-                            source_type: ImageSourceType::Base64,
-                            media_type: mime_type,
-                            data,
-                        },
-                    },
+                    McpToolContent::Image { data, mime_type } => {
+                        // Try to save binary content to disk instead of keeping
+                        // base64 in context (can be very large for PDFs/docs/audio)
+                        match save_binary_content(&_ctx.cwd, &data, &mime_type) {
+                            Some(path) => ToolOutputContent::Text {
+                                text: format!(
+                                    "[Binary content ({}) saved to {}]",
+                                    mime_type,
+                                    path.display()
+                                ),
+                            },
+                            None => ToolOutputContent::Image {
+                                source: ImageSource {
+                                    source_type: ImageSourceType::Base64,
+                                    media_type: mime_type,
+                                    data,
+                                },
+                            },
+                        }
+                    }
                 })
                 .collect();
 
@@ -85,6 +98,69 @@ impl chet_types::Tool for McpTool {
             })
         })
     }
+}
+
+/// Decode base64 data and save to a file with the correct extension.
+/// Returns the file path on success, None on failure.
+fn save_binary_content(
+    cwd: &std::path::Path,
+    base64_data: &str,
+    mime_type: &str,
+) -> Option<std::path::PathBuf> {
+    use std::io::Write;
+
+    let decoded = base64_decode(base64_data)?;
+
+    let ext = match mime_type {
+        "image/png" => "png",
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/gif" => "gif",
+        "image/svg+xml" => "svg",
+        "image/webp" => "webp",
+        "application/pdf" => "pdf",
+        "audio/mpeg" | "audio/mp3" => "mp3",
+        "audio/wav" => "wav",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "docx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => "xlsx",
+        _ => "bin",
+    };
+
+    let dir = cwd.join(".chet-mcp-output");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+
+    let filename = format!("mcp-{}.{ext}", &uuid::Uuid::new_v4().to_string()[..8]);
+    let path = dir.join(&filename);
+
+    let mut file = std::fs::File::create(&path).ok()?;
+    file.write_all(&decoded).ok()?;
+    Some(path)
+}
+
+/// Simple base64 decoder (no padding required).
+fn base64_decode(input: &str) -> Option<Vec<u8>> {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    let mut output = Vec::with_capacity(input.len() * 3 / 4);
+    let mut buf = 0u32;
+    let mut bits = 0u32;
+
+    for &byte in input.as_bytes() {
+        if byte == b'=' || byte == b'\n' || byte == b'\r' || byte == b' ' {
+            continue;
+        }
+        let val = TABLE.iter().position(|&b| b == byte)? as u32;
+        buf = (buf << 6) | val;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            output.push((buf >> bits) as u8);
+            buf &= (1 << bits) - 1;
+        }
+    }
+
+    Some(output)
 }
 
 #[cfg(test)]

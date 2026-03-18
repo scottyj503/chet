@@ -21,7 +21,7 @@ pub(crate) async fn handle_slash_command(
     store: &SessionStore,
     context_tracker: &ContextTracker,
     system_prompt: &str,
-    mcp_manager: &Option<chet_mcp::McpManager>,
+    mcp_manager: &mut Option<chet_mcp::McpManager>,
     memory_manager: &MemoryManager,
     project_id: Option<&str>,
     status_line: &Option<Arc<Mutex<StatusLine>>>,
@@ -52,7 +52,7 @@ pub(crate) async fn handle_slash_command(
             Some(SlashResult::Continue)
         }
         "/mcp" => {
-            handle_mcp_status(mcp_manager);
+            handle_mcp_command(args, mcp_manager).await;
             Some(SlashResult::Continue)
         }
         "/memory" => {
@@ -209,16 +209,36 @@ async fn handle_resume(session: &mut Session, store: &SessionStore, prefix: &str
     }
 }
 
-fn handle_mcp_status(mcp_manager: &Option<chet_mcp::McpManager>) {
-    match mcp_manager {
-        Some(manager) if manager.client_count() > 0 => {
-            eprintln!("MCP servers ({} connected):", manager.client_count());
-            for (name, tool_count) in manager.server_summary() {
-                eprintln!("  {name}: {tool_count} tools");
+async fn handle_mcp_command(args: Option<&str>, mcp_manager: &mut Option<chet_mcp::McpManager>) {
+    match args {
+        Some(sub) if sub.starts_with("reconnect") => {
+            let server_name = sub.strip_prefix("reconnect").unwrap().trim();
+            let server_name = if server_name.is_empty() {
+                None
+            } else {
+                Some(server_name)
+            };
+            if let Some(manager) = mcp_manager {
+                let count = manager.reconnect(server_name).await;
+                eprintln!("Reconnected {count} server(s).");
+            } else {
+                eprintln!("No MCP servers configured.");
             }
         }
         _ => {
-            eprintln!("No MCP servers connected.");
+            // Default: show status
+            match mcp_manager {
+                Some(manager) if manager.client_count() > 0 => {
+                    eprintln!("MCP servers ({} connected):", manager.client_count());
+                    for (name, tool_count) in manager.server_summary() {
+                        eprintln!("  {name}: {tool_count} tools");
+                    }
+                    eprintln!("\nUse /mcp reconnect [name] to reconnect servers.");
+                }
+                _ => {
+                    eprintln!("No MCP servers connected.");
+                }
+            }
         }
     }
 }

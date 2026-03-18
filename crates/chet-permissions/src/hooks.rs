@@ -46,6 +46,11 @@ async fn run_single_hook(hook: &HookConfig, hook_input: &HookInput) -> HookResul
         Err(e) => return HookResult::Error(format!("Failed to serialize hook input: {e}")),
     };
 
+    // HTTP hooks: POST JSON to a URL
+    if hook.command.starts_with("http://") || hook.command.starts_with("https://") {
+        return run_http_hook(hook, &input_json).await;
+    }
+
     let mut child = match tokio::process::Command::new("sh")
         .arg("-c")
         .arg(&hook.command)
@@ -82,6 +87,45 @@ async fn run_single_hook(hook: &HookConfig, hook_input: &HookInput) -> HookResul
                 hook.command, hook.timeout_ms
             ))
         }
+    }
+}
+
+/// Run an HTTP hook by POSTing JSON to the URL.
+/// Response protocol: 2xx = approve, 403 = deny, other = error.
+async fn run_http_hook(hook: &HookConfig, input_json: &str) -> HookResult {
+    let client = reqwest::Client::new();
+    let timeout = Duration::from_millis(hook.timeout_ms);
+
+    let result = tokio::time::timeout(
+        timeout,
+        client
+            .post(&hook.command)
+            .header("Content-Type", "application/json")
+            .body(input_json.to_string())
+            .send(),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(response)) => {
+            let status = response.status().as_u16();
+            match status {
+                200..=299 => HookResult::Approve,
+                403 => HookResult::Deny(format!(
+                    "HTTP hook '{}' denied the operation (403)",
+                    hook.command
+                )),
+                _ => HookResult::Error(format!(
+                    "HTTP hook '{}' returned status {status}",
+                    hook.command
+                )),
+            }
+        }
+        Ok(Err(e)) => HookResult::Error(format!("HTTP hook '{}' failed: {e}", hook.command)),
+        Err(_) => HookResult::Error(format!(
+            "HTTP hook '{}' timed out after {}ms",
+            hook.command, hook.timeout_ms
+        )),
     }
 }
 

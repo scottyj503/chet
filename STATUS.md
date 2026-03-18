@@ -129,24 +129,24 @@ Bugs found and fixed:
 - ~~**Status line**~~: **DONE** — Persistent terminal status bar (DECSTBM scroll region) showing model, context usage, tokens, effort, session ID, plan mode badge, and active tool. Updates in real-time during agent execution. Suspend/resume around line editor. SIGWINCH resize handling. TTY-only (skipped in print mode).
 - ~~**Memory management**~~: **DONE** — Audit complete. Session rules deduplicated (prevents unbounded "always allow" growth). SSE pending_events switched from Vec to VecDeque (O(1) pop_front). History already capped at 1000. MCP/tool registries static after init. Messages bounded by compaction. No unbounded caches found.
 - **`chet agents` CLI command**: List all configured agents/subagent definitions for discoverability.
-- **MCP reconnect resilience**: Handle `/mcp reconnect` with non-existent server name gracefully instead of freezing.
-- **Session flush on disconnect**: Flush session data before hooks/analytics on SSH disconnect or connection drop. Critical for remote/CI usage.
+- ~~**MCP reconnect resilience**~~: **DONE** — `/mcp reconnect [name]` shuts down and reconnects specified (or all) MCP servers. Unknown names show available servers instead of freezing. McpManager stores config for reconnection.
+- ~~**Session flush on disconnect**~~: **DONE** — SIGHUP handler (unix) cancels the current agent turn via CancellationToken, causing clean return to REPL which auto-saves the session. Same pattern as Ctrl+C.
 - ~~**Auto-memory**~~: **DONE** — MemoryRead/MemoryWrite tools + `/memory` command. Global (`~/.chet/memory/MEMORY.md`) and per-project (`~/.chet/memory/projects/<hash>.md`) scopes. Loaded into system prompt, refreshed after each turn. Atomic writes, $EDITOR support, worktree-safe (hashes original cwd).
 - ~~**Smarter bash permission prefixes**~~: **DONE** — Compound commands split on `&&`, `||`, `;`, `|` (quote-aware) for per-subcommand rule matching. `command:rm *` now catches `cd /tmp && rm -rf /`. 11 new tests.
 - ~~**Config file corruption prevention**~~: **DONE** — All file writes now use atomic tmp+rename: history, Write tool, Edit tool, plan files, compaction archives (sessions and memory already had it). `atomic_write_file` utility in chet-types. 3 new tests.
 - ~~**Tool result disk persistence**~~: **DONE** — Tool results >50K chars persisted to `.chet-tool-output/<tool>-<id>.txt` under CWD, truncated in context with path reference. Model can re-read via Read tool if needed.
 - ~~**`/copy` command**~~: **DONE** — Copies last assistant response to system clipboard (pbcopy/xclip/xsel/clip). Falls back to printing to stdout if clipboard unavailable.
 - ~~**`/model` human-readable labels**~~: **DONE** — `/model` shows "sonnet-4.5 (claude-sonnet-4-5-20250929)". `/sessions` list also uses short names. Reuses existing `shorten_model_name`.
-- **HTTP hooks**: Hooks can POST JSON to a URL and receive JSON back instead of running shell commands. Enables webhook integrations (Slack, CI status) without shell script wrappers.
+- ~~**HTTP hooks**~~: **DONE** — Hook commands starting with `http://` or `https://` POST the JSON payload to the URL. Response protocol: 2xx=approve, 403=deny, other=error. Uses reqwest with configurable timeout.
 - ~~**Effort levels**~~: **DONE** — `--effort` CLI flag (low/medium/high) maps to thinking budget_tokens (1024/8192/32768). `/effort` REPL command for per-turn changes. Effort shown in spinner and startup banner. Explicit `--thinking-budget` takes precedence.
 - ~~**Agent name in terminal title**~~: **DONE** — Terminal title set to "chet — <session-id>" on start, updated to "chet — <label>" when auto-label fires, reset on exit. OSC escape sequence, TTY-only.
 - ~~**`InstructionsLoaded` hook event**~~: **DONE** — `instructions_loaded` hook fires after system prompt (with memory) is set at session start. Enables validation hooks on loaded instructions.
 - ~~**Concise subagent reports**~~: **DONE** — Subagent results truncated at 10K chars with "(subagent output truncated from N chars)" marker. Keeps parent context lean.
 - ~~**`/resume` shows most recent prompt**~~: **DONE** — `preview()` now returns the last user text message instead of the first. `/sessions` list shows the most recent prompt for each session. 1 new test.
 - ~~**Skip compaction preamble recap**~~: **DONE** — Compaction summary shortened from verbose "[This conversation was compacted...]" to terse "[Compacted conversation summary:]". Saves ~15 tokens per compaction.
-- **Compaction preserves images for cache reuse**: Keep images in compaction summarizer request so prompt cache can be reused. Faster and cheaper compaction.
+- ~~**Compaction preserves images for cache reuse**~~: **DONE** — Already handled: `strip_heavy_payloads` only drops Thinking blocks; Image blocks pass through `other => Some(other.clone())`.
 - ~~**Skip skill re-injection on `/resume`**~~: **N/A** — Chet has no skill injection system. No action needed.
-- **MCP binary content to disk**: MCP tools returning PDFs/Office docs/audio save decoded bytes to disk with correct extension instead of dumping base64 into context.
+- ~~**MCP binary content to disk**~~: **DONE** — MCP image/binary content decoded from base64, saved to `.chet-mcp-output/mcp-<uuid>.{ext}` with correct extension (png/jpg/pdf/docx/xlsx/mp3/etc). Text reference returned to context instead of raw base64.
 - ~~**Increased output token limits**~~: **DONE** — Default max_tokens bumped from 16k to 64k.
 - ~~**`/effort auto`**~~: **DONE** — `/effort auto` resets effort to default (no explicit thinking budget). Help text and error messages updated.
 - ~~**`-n` / `--name` session flag**~~: **DONE** — `chet -n "my task"` sets session label at startup, overrides auto-label. Works with `--resume` too.

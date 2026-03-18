@@ -7,6 +7,7 @@ use std::sync::Arc;
 /// Manages connections to multiple MCP servers.
 pub struct McpManager {
     clients: Vec<Arc<McpClient>>,
+    config: McpConfig,
 }
 
 impl McpManager {
@@ -34,7 +35,78 @@ impl McpManager {
             }
         }
 
-        Self { clients }
+        Self {
+            clients,
+            config: config.clone(),
+        }
+    }
+
+    /// Reconnect a specific server by name, or all servers if name is None.
+    /// Returns the number of servers successfully (re)connected.
+    pub async fn reconnect(&mut self, server_name: Option<&str>) -> usize {
+        let servers_to_reconnect: Vec<(String, crate::config::McpServerConfig)> = match server_name
+        {
+            Some(name) => {
+                if let Some(cfg) = self.config.servers.get(name) {
+                    vec![(name.to_string(), cfg.clone())]
+                } else {
+                    eprintln!("Unknown MCP server: {name}");
+                    eprintln!(
+                        "Configured servers: {}",
+                        self.config
+                            .servers
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    return 0;
+                }
+            }
+            None => self
+                .config
+                .servers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        };
+
+        // Shut down existing clients for the servers we're reconnecting
+        let reconnect_names: Vec<&str> = servers_to_reconnect
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect();
+        let mut kept_clients = Vec::new();
+        for client in self.clients.drain(..) {
+            if reconnect_names.contains(&client.server_name()) {
+                if let Ok(c) = Arc::try_unwrap(client) {
+                    c.shutdown().await;
+                }
+            } else {
+                kept_clients.push(client);
+            }
+        }
+        self.clients = kept_clients;
+
+        // Reconnect
+        let mut connected = 0;
+        for (name, server_config) in &servers_to_reconnect {
+            match McpClient::connect(name.clone(), server_config).await {
+                Ok(client) => {
+                    eprintln!(
+                        "MCP server '{}' connected ({} tools)",
+                        name,
+                        client.tools().len()
+                    );
+                    self.clients.push(Arc::new(client));
+                    connected += 1;
+                }
+                Err(e) => {
+                    eprintln!("Failed to connect MCP server '{name}': {e}");
+                }
+            }
+        }
+        connected
     }
 
     /// Get all tools from all connected servers, paired with their client.

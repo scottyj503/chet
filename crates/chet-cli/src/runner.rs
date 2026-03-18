@@ -83,7 +83,22 @@ pub(crate) async fn run_agent(
     let cancel = CancellationToken::new();
     let cancel_for_signal = cancel.clone();
     let signal_task = tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
+        #[cfg(unix)]
+        {
+            let mut sighup =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()).ok();
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = async {
+                    if let Some(ref mut sig) = sighup { sig.recv().await; }
+                    else { std::future::pending::<()>().await; }
+                } => {}
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+        }
         cancel_for_signal.cancel();
     });
 
