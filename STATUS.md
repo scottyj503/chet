@@ -69,7 +69,7 @@
 
 ## Test Summary
 
-- 419 unit tests passing (34 api, 13 config, 16 core/agent+subagent+worktree, 29 tools, 45 permissions, 58 session, 27 types, 153 terminal, 15 cli, 29 mcp)
+- 421 unit tests passing (34 api, 15 config, 16 core/agent+subagent+worktree, 29 tools, 45 permissions, 58 session, 27 types, 153 terminal, 15 cli, 29 mcp)
   - 10 agent integration tests (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state + 1 parallel-failure-isolation + 1 mixed-parallel-sequential)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
@@ -166,9 +166,9 @@ Bugs found and fixed:
 - ~~**Token estimation audit**~~: **DONE** — Thinking blocks excluded (not in input context). Text uses chars/3.5 (was chars/4). JSON/tool inputs use chars/5. ToolUse/ToolResult add fixed overhead for IDs. 4 new tests.
 - **`StopFailure` hook event**: Fire hook when a turn ends due to API error (rate limit, auth failure, etc.). Enables error monitoring and alerting integrations.
 - **MCP deny rule enforcement**: Deny rules should filter MCP tools from the API request entirely, not just block execution. Model should never see denied tools.
-- **Worktree hooks/config loading**: `--worktree` should load hooks and config from the worktree directory, not just the original repo.
+- ~~**Worktree hooks/config loading**~~: **DONE** — `load_with_project_dir()` loads `.chet/config.toml` from the project directory and merges hooks + permission rules with global config. Called with CWD on startup.
 - **Custom model option**: Env var or config setting to add custom model entries to the model picker (useful for custom endpoints, Bedrock inference profiles).
-- **Agent frontmatter**: Per-agent config fields (`effort`, `max_turns`, `disallowed_tools`) for agent definitions. Requires agent definition system first.
+- ~~**Agent frontmatter**~~: **DONE** — `[agents.<name>]` config section with `effort`, `max_turns`, `disallowed_tools`, `system_prompt` fields. `AgentConfig` struct in chet-config. 2 new tests.
 
 ## Coding Standards
 

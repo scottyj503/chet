@@ -33,6 +33,8 @@ pub struct ChetConfig {
     pub permission_rules: Vec<chet_permissions::PermissionRule>,
     pub hooks: Vec<chet_permissions::HookConfig>,
     pub mcp: chet_mcp::McpConfig,
+    /// Per-agent configuration profiles.
+    pub agents: std::collections::HashMap<String, AgentConfig>,
 }
 
 /// Settings that can be read from a TOML config file.
@@ -48,6 +50,23 @@ pub struct SettingsFile {
     pub mcp: chet_mcp::McpConfig,
     /// Custom directory for persistent memory files (default: `<config_dir>/memory/`).
     pub memory_dir: Option<String>,
+    /// Per-agent configuration profiles.
+    #[serde(default)]
+    pub agents: std::collections::HashMap<String, AgentConfig>,
+}
+
+/// Per-agent configuration profile (used by SubagentTool and named agents).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentConfig {
+    /// Effort level override for this agent.
+    pub effort: Option<Effort>,
+    /// Maximum tool-use turns before stopping.
+    pub max_turns: Option<usize>,
+    /// Tools that this agent is not allowed to use.
+    #[serde(default)]
+    pub disallowed_tools: Vec<String>,
+    /// Custom system prompt for this agent.
+    pub system_prompt: Option<String>,
 }
 
 /// Permission rules section of the config file.
@@ -97,8 +116,22 @@ impl ChetConfig {
     /// 4. Global config (~/.chet/config.toml)
     /// 5. Defaults
     pub fn load(overrides: CliOverrides) -> Result<Self, chet_types::ConfigError> {
+        Self::load_with_project_dir(overrides, None)
+    }
+
+    /// Load configuration, optionally merging a project-level config.
+    /// The project dir (e.g. a worktree or repo root) can contain `.chet/config.toml`
+    /// with hooks and permission rules that supplement the global config.
+    pub fn load_with_project_dir(
+        overrides: CliOverrides,
+        project_dir: Option<&std::path::Path>,
+    ) -> Result<Self, chet_types::ConfigError> {
         let config_dir = config_dir();
         let global_settings = load_settings_file(&config_dir.join("config.toml"));
+
+        // Load project-level config if available
+        let project_settings =
+            project_dir.map(|dir| load_settings_file(&dir.join(".chet").join("config.toml")));
 
         // Resolve API key: CLI > env > config file
         let api_key = overrides
@@ -162,6 +195,14 @@ impl ChetConfig {
             None => config_dir.join("memory"),
         };
 
+        // Merge project-level hooks and permission rules (project supplements global)
+        let mut permission_rules = global_settings.permissions.rules;
+        let mut hooks = global_settings.hooks;
+        if let Some(ref proj) = project_settings {
+            permission_rules.extend(proj.permissions.rules.clone());
+            hooks.extend(proj.hooks.clone());
+        }
+
         Ok(ChetConfig {
             api_key,
             model,
@@ -170,9 +211,10 @@ impl ChetConfig {
             thinking_budget,
             effort,
             retry,
-            permission_rules: global_settings.permissions.rules,
-            hooks: global_settings.hooks,
+            permission_rules,
+            hooks,
             mcp: global_settings.mcp,
+            agents: global_settings.agents,
             config_dir,
             memory_dir,
         })
@@ -390,5 +432,48 @@ model = "claude-opus-4-6"
 "#;
         let settings: SettingsFile = toml::from_str(toml_str).unwrap();
         assert!(settings.memory_dir.is_none());
+    }
+
+    #[test]
+    fn test_settings_with_agents() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+
+[agents.reviewer]
+effort = "high"
+max_turns = 10
+disallowed_tools = ["Write", "Edit"]
+system_prompt = "You are a code reviewer."
+
+[agents.fast]
+effort = "low"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(settings.agents.len(), 2);
+        let reviewer = &settings.agents["reviewer"];
+        assert_eq!(reviewer.effort, Some(Effort::High));
+        assert_eq!(reviewer.max_turns, Some(10));
+        assert_eq!(reviewer.disallowed_tools, vec!["Write", "Edit"]);
+        assert!(
+            reviewer
+                .system_prompt
+                .as_deref()
+                .unwrap()
+                .contains("code reviewer")
+        );
+        let fast = &settings.agents["fast"];
+        assert_eq!(fast.effort, Some(Effort::Low));
+        assert!(fast.disallowed_tools.is_empty());
+    }
+
+    #[test]
+    fn test_settings_agents_defaults_to_empty() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert!(settings.agents.is_empty());
     }
 }

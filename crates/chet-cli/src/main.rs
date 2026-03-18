@@ -97,13 +97,18 @@ async fn main() -> Result<()> {
         .with_writer(io::stderr)
         .init();
 
-    let config = ChetConfig::load(CliOverrides {
-        api_key: cli.api_key,
-        model: cli.model,
-        max_tokens: cli.max_tokens,
-        thinking_budget: cli.thinking_budget,
-        effort: cli.effort,
-    })
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+    let config = ChetConfig::load_with_project_dir(
+        CliOverrides {
+            api_key: cli.api_key,
+            model: cli.model,
+            max_tokens: cli.max_tokens,
+            thinking_budget: cli.thinking_budget,
+            effort: cli.effort,
+        },
+        Some(&cwd),
+    )
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let provider: Arc<dyn Provider> = Arc::new(
@@ -111,8 +116,6 @@ async fn main() -> Result<()> {
             .context("Failed to create API provider")?
             .with_retry_config(config.retry.clone()),
     );
-
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
     let is_interactive = cli.print.is_none() && !cli.ludicrous;
 
