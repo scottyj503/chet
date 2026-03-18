@@ -593,10 +593,32 @@ impl Agent {
             tracing::warn!("after_tool hook error: {msg}");
         }
 
+        /// Tool results larger than this are persisted to disk and truncated in context.
+        const MAX_INLINE_RESULT_CHARS: usize = 50_000;
+
         let content = output
             .content
             .into_iter()
             .map(|c| match c {
+                chet_types::ToolOutputContent::Text { text }
+                    if text.len() > MAX_INLINE_RESULT_CHARS =>
+                {
+                    // Persist full result to disk, truncate in context
+                    let path = persist_tool_result(&self.cwd, tool_name, tool_id, &text);
+                    let truncated = chet_types::truncate_str(&text, MAX_INLINE_RESULT_CHARS);
+                    let note = match path {
+                        Some(p) => format!(
+                            "{truncated}\n\n(output truncated from {} chars — full result at {})",
+                            text.len(),
+                            p.display()
+                        ),
+                        None => format!(
+                            "{truncated}\n\n(output truncated from {} chars)",
+                            text.len()
+                        ),
+                    };
+                    ToolResultContent::Text { text: note }
+                }
                 chet_types::ToolOutputContent::Text { text } => ToolResultContent::Text { text },
                 chet_types::ToolOutputContent::Image { source } => {
                     ToolResultContent::Image { source }
@@ -608,6 +630,36 @@ impl Agent {
             tool_use_id: tool_id.to_string(),
             content,
             is_error: if output.is_error { Some(true) } else { None },
+        }
+    }
+}
+
+/// Persist a large tool result to a temp file under the CWD.
+/// Returns the path on success, None on failure.
+fn persist_tool_result(
+    cwd: &std::path::Path,
+    tool_name: &str,
+    tool_id: &str,
+    text: &str,
+) -> Option<std::path::PathBuf> {
+    let dir = cwd.join(".chet-tool-output");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!("Failed to create tool output dir: {e}");
+        return None;
+    }
+    // Short ID to avoid long filenames
+    let short_id = if tool_id.len() > 8 {
+        &tool_id[..8]
+    } else {
+        tool_id
+    };
+    let filename = format!("{tool_name}-{short_id}.txt");
+    let path = dir.join(&filename);
+    match std::fs::write(&path, text) {
+        Ok(()) => Some(path),
+        Err(e) => {
+            tracing::warn!("Failed to persist tool result: {e}");
+            None
         }
     }
 }

@@ -127,14 +127,14 @@ Bugs found and fixed:
 - **File-not-found path suggestions**: When model drops the repo prefix from a path, suggest the corrected path. Saves wasted agent turns.
 - **Enhanced permission restriction reasons**: Show why a path or working directory is blocked, not just that it is.
 - ~~**Status line**~~: **DONE** — Persistent terminal status bar (DECSTBM scroll region) showing model, context usage, tokens, effort, session ID, plan mode badge, and active tool. Updates in real-time during agent execution. Suspend/resume around line editor. SIGWINCH resize handling. TTY-only (skipped in print mode).
-- **Memory management**: Clear internal caches after compaction, cap file history snapshots, free completed task output, strip heavy progress payloads during compaction for subagent sessions. Audit checklist: any cache (git root, JSON parsing, tool results, MCP resources) must have a bounded size or TTL to prevent unbounded growth in long sessions.
+- ~~**Memory management**~~: **DONE** — Audit complete. Session rules deduplicated (prevents unbounded "always allow" growth). SSE pending_events switched from Vec to VecDeque (O(1) pop_front). History already capped at 1000. MCP/tool registries static after init. Messages bounded by compaction. No unbounded caches found.
 - **`chet agents` CLI command**: List all configured agents/subagent definitions for discoverability.
 - **MCP reconnect resilience**: Handle `/mcp reconnect` with non-existent server name gracefully instead of freezing.
 - **Session flush on disconnect**: Flush session data before hooks/analytics on SSH disconnect or connection drop. Critical for remote/CI usage.
 - ~~**Auto-memory**~~: **DONE** — MemoryRead/MemoryWrite tools + `/memory` command. Global (`~/.chet/memory/MEMORY.md`) and per-project (`~/.chet/memory/projects/<hash>.md`) scopes. Loaded into system prompt, refreshed after each turn. Atomic writes, $EDITOR support, worktree-safe (hashes original cwd).
 - ~~**Smarter bash permission prefixes**~~: **DONE** — Compound commands split on `&&`, `||`, `;`, `|` (quote-aware) for per-subcommand rule matching. `command:rm *` now catches `cd /tmp && rm -rf /`. 11 new tests.
 - ~~**Config file corruption prevention**~~: **DONE** — All file writes now use atomic tmp+rename: history, Write tool, Edit tool, plan files, compaction archives (sessions and memory already had it). `atomic_write_file` utility in chet-types. 3 new tests.
-- **Tool result disk persistence**: Persist tool results >50K chars to disk instead of keeping in context. Reduces context window usage for long sessions.
+- ~~**Tool result disk persistence**~~: **DONE** — Tool results >50K chars persisted to `.chet-tool-output/<tool>-<id>.txt` under CWD, truncated in context with path reference. Model can re-read via Read tool if needed.
 - ~~**`/copy` command**~~: **DONE** — Copies last assistant response to system clipboard (pbcopy/xclip/xsel/clip). Falls back to printing to stdout if clipboard unavailable.
 - ~~**`/model` human-readable labels**~~: **DONE** — `/model` shows "sonnet-4.5 (claude-sonnet-4-5-20250929)". `/sessions` list also uses short names. Reuses existing `shorten_model_name`.
 - **HTTP hooks**: Hooks can POST JSON to a URL and receive JSON back instead of running shell commands. Enables webhook integrations (Slack, CI status) without shell script wrappers.

@@ -6,6 +6,7 @@ use chet_types::{
 };
 use futures_core::Stream;
 use pin_project_lite::pin_project;
+use std::collections::VecDeque;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -15,7 +16,7 @@ pin_project! {
         #[pin]
         inner: Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
         parser: SseParser,
-        pending_events: Vec<Result<StreamEvent, ApiError>>,
+        pending_events: VecDeque<Result<StreamEvent, ApiError>>,
     }
 }
 
@@ -27,7 +28,7 @@ impl MessageStream {
         Self {
             inner: Box::pin(byte_stream),
             parser: SseParser::new(),
-            pending_events: Vec::new(),
+            pending_events: VecDeque::new(),
         }
     }
 }
@@ -39,8 +40,7 @@ impl Stream for MessageStream {
         let mut this = self.project();
 
         // Drain any previously buffered events first
-        if !this.pending_events.is_empty() {
-            let event = this.pending_events.remove(0);
+        if let Some(event) = this.pending_events.pop_front() {
             if !this.pending_events.is_empty() {
                 // More events buffered — wake immediately so we yield them
                 cx.waker().wake_by_ref();
@@ -58,11 +58,11 @@ impl Stream for MessageStream {
                 for sse_event in sse_events {
                     match parse_stream_event(&sse_event.event_type, &sse_event.data) {
                         Ok(Some(stream_event)) => {
-                            this.pending_events.push(Ok(stream_event));
+                            this.pending_events.push_back(Ok(stream_event));
                         }
                         Ok(None) => {} // Unknown/skipped event type
                         Err(e) => {
-                            this.pending_events.push(Err(e));
+                            this.pending_events.push_back(Err(e));
                         }
                     }
                 }
@@ -72,7 +72,7 @@ impl Stream for MessageStream {
                     cx.waker().wake_by_ref();
                     Poll::Pending
                 } else {
-                    let event = this.pending_events.remove(0);
+                    let event = this.pending_events.pop_front().unwrap();
                     if !this.pending_events.is_empty() {
                         cx.waker().wake_by_ref();
                     }

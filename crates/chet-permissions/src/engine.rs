@@ -107,9 +107,16 @@ impl PermissionEngine {
 
     /// Add a session-scoped permit rule (from "always allow" responses).
     /// Dies with the process — not persisted to config.
+    /// Deduplicates by tool name + args to prevent unbounded growth.
     pub fn add_session_rule(&self, rule: PermissionRule) {
         let mut session_rules = self.session_rules.lock().unwrap();
-        session_rules.push(rule);
+        // Skip if an identical rule already exists
+        if !session_rules
+            .iter()
+            .any(|r| r.tool == rule.tool && r.args == rule.args && r.level == rule.level)
+        {
+            session_rules.push(rule);
+        }
     }
 
     /// Run hooks for the given event.
