@@ -169,6 +169,32 @@ Bugs found and fixed:
 - ~~**Worktree hooks/config loading**~~: **DONE** — `load_with_project_dir()` loads `.chet/config.toml` from the project directory and merges hooks + permission rules with global config. Called with CWD on startup.
 - ~~**Custom model option**~~: **DONE** — `[models]` config section for aliases (e.g. `fast = "claude-haiku-4-5-20251001"`). Aliases resolved during config load. 2 new tests.
 - ~~**Agent frontmatter**~~: **DONE** — `[agents.<name>]` config section with `effort`, `max_turns`, `disallowed_tools`, `system_prompt` fields. `AgentConfig` struct in chet-config. 2 new tests.
+- **VCS directory exclusions**: Add `.jj` (Jujutsu) and `.sl` (Sapling) to Grep/Glob exclusion lists alongside `.git`.
+- **MCP tool description cap**: Cap MCP tool descriptions at 2KB to prevent OpenAPI-generated servers from bloating context window.
+- **Token count formatting**: Display >=1M tokens as "1.5m" instead of "1512.6k" in status line and `/context`.
+- **Tool result file cleanup**: Clean up `.chet-tool-output/` files after configurable period (`cleanup_period_days`). Persistence exists but no housekeeping.
+- **Session ID header**: Add `X-Chet-Session-Id` header to API requests for proxy aggregation and debugging.
+- **Stream idle timeout**: Configurable watchdog for hanging SSE streams (default 90s). Kill and surface error instead of hanging indefinitely.
+- **Conditional hook `if` field**: Filter hooks by tool pattern (e.g., `Bash(git *)`). Uses permission rule syntax. Reduces unnecessary process spawning.
+- **Read tool dedup unchanged re-reads**: Track recently-read file content hashes, skip re-sending unchanged files to reduce token usage.
+- **`--bare` flag**: Minimal startup for scripted/CI `-p` calls — skip hooks, memory, MCP, plugin sync. Faster cold start.
+- **Idle-return prompt**: Suggest `/clear` or `/compact` after 75+ minutes idle to avoid stale context and token waste.
+- **Background bash stuck notification**: Surface notification when bash appears stuck on an interactive prompt (~45s timeout).
+- **Rate limit display in status line**: Show API rate limit usage percentages and reset time.
+- **`CwdChanged`/`FileChanged` hook events**: Reactive hooks for environment management (e.g., direnv-style auto-reload).
+- **`PermissionDenied` hook**: Fire hook after permission denials. Return `{retry: true}` to let model retry.
+- **Transcript search**: Search through conversation history (`/` in transcript mode, `n`/`N` to step through matches).
+- **Worktree resume restoration**: `--resume` on a session that was in a worktree should restore that worktree automatically.
+- **SSE large frame performance audit**: Audit SSE parser for quadratic behavior on large streamed frames (CC v2.1.90 found and fixed this).
+- **MCP result size override**: Allow MCP servers to specify max result size via `_meta["maxResultSizeChars"]` annotation (up to 500K), preventing truncation of large but valuable results like DB schemas.
+- **`--resume` filter print-mode sessions**: Don't show `-p` (print mode) sessions in the resume picker. They're one-shot and not useful to resume interactively.
+- **Protected directory list**: Add `.husky`, `.github/workflows`, and other CI/config dirs to directories requiring explicit write permission.
+- **Hook `defer` permission decision**: PreToolUse hooks can return `"defer"` to pause execution. Headless sessions resume with `-p --resume` for later re-evaluation. CI/CD pattern.
+- **MCP connection non-blocking in print mode**: Skip MCP server connection wait in `-p` mode, bound connection time at 5s instead of blocking on slowest server.
+- **Edit without prior Read**: Allow Edit on files the model has seen via Bash output (cat, sed -n), not just via the Read tool.
+- **Hook output disk persistence**: Hook output >50K chars saved to disk with file path + preview instead of injecting directly into context.
+- **Bash stale-edit warning**: Warn when a formatter/linter modifies previously-read files, preventing stale-edit errors on subsequent Edit calls.
+- **Format-on-save hook conflict**: Handle PostToolUse hooks that rewrite files between consecutive Edit/Write calls (e.g., rustfmt). Detect changed content and re-read before next edit.
 
 ## Coding Standards
 
