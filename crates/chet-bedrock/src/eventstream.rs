@@ -6,7 +6,7 @@
 //! - Payload: the actual JSON data (same format as Anthropic SSE)
 //! - 4-byte message CRC at the end
 
-use bytes::{Buf, BytesMut};
+use bytes::BytesMut;
 
 /// A parsed EventStream message.
 #[derive(Debug, Clone)]

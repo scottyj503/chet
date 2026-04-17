@@ -15,10 +15,9 @@ use std::pin::Pin;
 pub struct BedrockProvider {
     region: String,
     client: reqwest::Client,
-    credentials_cache: std::sync::Arc<tokio::sync::Mutex<Option<CachedCredentials>>>,
 }
 
-struct CachedCredentials {
+struct ResolvedCredentials {
     access_key: String,
     secret_key: String,
     session_token: Option<String>,
@@ -31,7 +30,6 @@ impl BedrockProvider {
         Self {
             region: region.to_string(),
             client: reqwest::Client::new(),
-            credentials_cache: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
@@ -44,14 +42,14 @@ impl BedrockProvider {
     }
 
     /// Resolve AWS credentials from the environment.
-    async fn resolve_credentials(&self) -> Result<CachedCredentials, ApiError> {
+    async fn resolve_credentials(&self) -> Result<ResolvedCredentials, ApiError> {
         // Check env vars first (fastest path)
         let access_key = std::env::var("AWS_ACCESS_KEY_ID").ok();
         let secret_key = std::env::var("AWS_SECRET_ACCESS_KEY").ok();
         let session_token = std::env::var("AWS_SESSION_TOKEN").ok();
 
         if let (Some(ak), Some(sk)) = (access_key, secret_key) {
-            return Ok(CachedCredentials {
+            return Ok(ResolvedCredentials {
                 access_key: ak,
                 secret_key: sk,
                 session_token,
@@ -71,7 +69,7 @@ impl BedrockProvider {
                 message: format!("Failed to resolve AWS credentials: {e}"),
             })?;
 
-        Ok(CachedCredentials {
+        Ok(ResolvedCredentials {
             access_key: creds.access_key_id().to_string(),
             secret_key: creds.secret_access_key().to_string(),
             session_token: creds.session_token().map(|s| s.to_string()),
