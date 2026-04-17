@@ -68,6 +68,15 @@ struct Cli {
     /// Name for the session (overrides auto-labeling)
     #[arg(short = 'n', long)]
     name: Option<String>,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(clap::Subcommand)]
+enum Commands {
+    /// List configured agent profiles
+    Agents,
 }
 
 #[tokio::main]
@@ -110,6 +119,12 @@ async fn main() -> Result<()> {
         Some(&cwd),
     )
     .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    // Handle subcommands that don't need the full agent stack
+    if let Some(Commands::Agents) = cli.command {
+        print_agents(&config);
+        return Ok(());
+    }
 
     let provider: Arc<dyn Provider> = Arc::new(
         AnthropicProvider::new(&config.api_key, &config.api_base_url)
@@ -225,4 +240,44 @@ async fn main() -> Result<()> {
     }
 
     result
+}
+
+/// Print the configured agent profiles from `[agents.<name>]` config sections.
+fn print_agents(config: &ChetConfig) {
+    if config.agents.is_empty() {
+        println!("No agent profiles configured.");
+        println!("Add profiles in ~/.chet/config.toml or .chet/config.toml:");
+        println!();
+        println!("  [agents.reviewer]");
+        println!("  effort = \"high\"");
+        println!("  disallowed_tools = [\"Write\", \"Edit\"]");
+        return;
+    }
+
+    let mut names: Vec<&String> = config.agents.keys().collect();
+    names.sort();
+
+    println!("Configured agent profiles:\n");
+    for name in names {
+        let agent = &config.agents[name];
+        println!("  {name}");
+        if let Some(e) = agent.effort {
+            println!("    effort: {e}");
+        }
+        if let Some(n) = agent.max_turns {
+            println!("    max_turns: {n}");
+        }
+        if !agent.disallowed_tools.is_empty() {
+            println!(
+                "    disallowed_tools: {}",
+                agent.disallowed_tools.join(", ")
+            );
+        }
+        if let Some(prompt) = &agent.system_prompt {
+            let preview = chet_types::truncate_str(prompt, 60);
+            let ellipsis = if prompt.len() > 60 { "..." } else { "" };
+            println!("    system_prompt: {preview}{ellipsis}");
+        }
+        println!();
+    }
 }

@@ -6,6 +6,7 @@ mod glob;
 mod grep;
 mod memory_read;
 mod memory_write;
+mod path_suggest;
 mod read;
 mod registry;
 mod write;

@@ -55,7 +55,7 @@ impl Tool for ReadTool {
     fn execute(
         &self,
         input: serde_json::Value,
-        _ctx: ToolContext,
+        ctx: ToolContext,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<ToolOutput, ToolError>> + Send + '_>,
     > {
@@ -68,7 +68,17 @@ impl Tool for ReadTool {
 
             let content = tokio::fs::read_to_string(&input.file_path)
                 .await
-                .map_err(|e| ToolError::ExecutionFailed(format!("{}: {e}", input.file_path)))?;
+                .map_err(|e| {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        ToolError::ExecutionFailed(crate::path_suggest::format_not_found_error(
+                            &input.file_path,
+                            &ctx.cwd,
+                            &e.to_string(),
+                        ))
+                    } else {
+                        ToolError::ExecutionFailed(format!("{}: {e}", input.file_path))
+                    }
+                })?;
 
             if content.is_empty() {
                 return Ok(ToolOutput::text("(empty file)"));

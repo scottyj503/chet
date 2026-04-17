@@ -119,7 +119,7 @@ Add AWS Bedrock and Google Vertex AI support, building on the existing `Provider
 
 ## Test Summary
 
-- 427 unit tests passing (34 api, 17 config, 16 core/agent+subagent+worktree, 29 tools, 47 permissions, 58 session, 27 types, 153 terminal, 15 cli, 29 mcp)
+- 436 unit tests passing (34 api, 17 config, 16 core/agent+subagent+worktree, 35 tools, 50 permissions, 58 session, 27 types, 153 terminal, 15 cli, 29 mcp)
   - 10 agent integration tests (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state + 1 parallel-failure-isolation + 1 mixed-parallel-sequential)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
@@ -174,11 +174,11 @@ Bugs found and fixed:
 - ~~**Worktree isolation**~~: **DONE** — `--worktree` flag + subagent `isolation: "worktree"` for parallel agents in isolated git worktrees. `WorktreeCreate`/`WorktreeRemove` hook events, RAII cleanup via `ManagedWorktree`.
 - ~~**Non-interactive mode optimization**~~: **DONE** — TTY detection via `std::io::IsTerminal`, plain markdown passthrough, silent spinner, plain tool events, no ANSI in piped output.
 - **ConfigChange hook event**: Fire hook when config files change during a session. Enables hot-reload without restart.
-- **File-not-found path suggestions**: When model drops the repo prefix from a path, suggest the corrected path. Saves wasted agent turns.
-- **Enhanced permission restriction reasons**: Show why a path or working directory is blocked, not just that it is.
+- ~~**File-not-found path suggestions**~~: **DONE** — Read/Edit tools now walk the repo (via .git discovery) on NotFound and suggest files with matching basenames. Skips target/, node_modules/, .venv/, etc. Cap 5 suggestions, max depth 8. New `path_suggest` module with 6 tests.
+- ~~**Enhanced permission restriction reasons**~~: **DONE** — Block/Prompt messages now include the matched input args: "Tool 'Bash' (command: rm -rf /tmp/foo) blocked by permission (rule: Bash [command:rm *] -> block)". Extracts key string fields (command, file_path, path, url, pattern), truncated at 80 chars. 3 new tests.
 - ~~**Status line**~~: **DONE** — Persistent terminal status bar (DECSTBM scroll region) showing model, context usage, tokens, effort, session ID, plan mode badge, and active tool. Updates in real-time during agent execution. Suspend/resume around line editor. SIGWINCH resize handling. TTY-only (skipped in print mode).
 - ~~**Memory management**~~: **DONE** — Audit complete. Session rules deduplicated (prevents unbounded "always allow" growth). SSE pending_events switched from Vec to VecDeque (O(1) pop_front). History already capped at 1000. MCP/tool registries static after init. Messages bounded by compaction. No unbounded caches found.
-- **`chet agents` CLI command**: List all configured agents/subagent definitions for discoverability.
+- ~~**`chet agents` CLI command**~~: **DONE** — `chet agents` subcommand lists configured `[agents.<name>]` profiles with their effort, max_turns, disallowed_tools, and system_prompt preview. Uses clap Subcommand pattern.
 - ~~**MCP reconnect resilience**~~: **DONE** — `/mcp reconnect [name]` shuts down and reconnects specified (or all) MCP servers. Unknown names show available servers instead of freezing. McpManager stores config for reconnection.
 - ~~**Session flush on disconnect**~~: **DONE** — SIGHUP handler (unix) cancels the current agent turn via CancellationToken, causing clean return to REPL which auto-saves the session. Same pattern as Ctrl+C.
 - ~~**Auto-memory**~~: **DONE** — MemoryRead/MemoryWrite tools + `/memory` command. Global (`~/.chet/memory/MEMORY.md`) and per-project (`~/.chet/memory/projects/<hash>.md`) scopes. Loaded into system prompt, refreshed after each turn. Atomic writes, $EDITOR support, worktree-safe (hashes original cwd).

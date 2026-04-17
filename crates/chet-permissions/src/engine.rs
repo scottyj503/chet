@@ -76,18 +76,19 @@ impl PermissionEngine {
 
         // Check static rules
         if let Some(result) = RuleMatcher::evaluate(&self.rules, tool_name, tool_input) {
+            let input_summary = summarize_tool_input(tool_input);
             return match result.level {
                 PermissionLevel::Permit => PermissionDecision::Permit,
                 PermissionLevel::Block => PermissionDecision::Block {
                     reason: format!(
-                        "Tool '{tool_name}' blocked by permission ({})",
+                        "Tool '{tool_name}'{input_summary} blocked by permission ({})",
                         result.description
                     ),
                 },
                 PermissionLevel::Prompt => PermissionDecision::Prompt {
                     tool: tool_name.to_string(),
                     description: format!(
-                        "Tool '{tool_name}' requires permission ({})",
+                        "Tool '{tool_name}'{input_summary} requires permission ({})",
                         result.description
                     ),
                 },
@@ -160,6 +161,30 @@ impl PermissionEngine {
             }
         }
     }
+}
+
+/// Summarize a tool input as a short human-readable string for error messages.
+/// Extracts key string fields (command, file_path, path, url) and truncates them.
+fn summarize_tool_input(input: &serde_json::Value) -> String {
+    const KEY_FIELDS: &[&str] = &["command", "file_path", "path", "url", "pattern"];
+    const MAX_LEN: usize = 80;
+
+    let obj = match input.as_object() {
+        Some(o) => o,
+        None => return String::new(),
+    };
+
+    for field in KEY_FIELDS {
+        if let Some(serde_json::Value::String(val)) = obj.get(*field) {
+            let truncated = if val.len() > MAX_LEN {
+                format!("{}...", chet_types::truncate_str(val, MAX_LEN))
+            } else {
+                val.clone()
+            };
+            return format!(" ({field}: {truncated})");
+        }
+    }
+    String::new()
 }
 
 #[cfg(test)]
@@ -263,5 +288,47 @@ mod tests {
     fn test_is_tool_blocked_ludicrous() {
         let e = PermissionEngine::ludicrous();
         assert!(!e.is_tool_blocked("Bash")); // ludicrous = nothing blocked
+    }
+
+    #[test]
+    fn test_block_reason_includes_command() {
+        let e = engine(vec![rule(
+            "Bash",
+            Some("command:rm *"),
+            PermissionLevel::Block,
+        )]);
+        let decision = e.check("Bash", &json!({"command": "rm -rf /tmp/foo"}), false);
+        match decision {
+            PermissionDecision::Block { reason } => {
+                assert!(reason.contains("rm -rf /tmp/foo"), "reason: {reason}");
+                assert!(reason.contains("command:rm *"), "reason: {reason}");
+            }
+            other => panic!("expected Block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_block_reason_includes_file_path() {
+        let e = engine(vec![rule(
+            "Read",
+            Some("file_path:/etc/*"),
+            PermissionLevel::Block,
+        )]);
+        let decision = e.check("Read", &json!({"file_path": "/etc/passwd"}), true);
+        match decision {
+            PermissionDecision::Block { reason } => {
+                assert!(reason.contains("/etc/passwd"), "reason: {reason}");
+            }
+            other => panic!("expected Block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_summarize_tool_input_truncates_long() {
+        let long_cmd = "echo ".to_string() + &"x".repeat(200);
+        let input = json!({"command": long_cmd});
+        let summary = summarize_tool_input(&input);
+        assert!(summary.len() < 120, "summary too long: {summary}");
+        assert!(summary.contains("..."));
     }
 }
