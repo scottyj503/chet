@@ -199,4 +199,97 @@ mod tests {
         assert!(text.contains("line 59"));
         assert!(!text.contains("line 60\n")); // limit=10 from line 50
     }
+
+    #[tokio::test]
+    async fn test_read_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("empty.txt");
+        std::fs::write(&path, "").unwrap();
+
+        let output = ReadTool
+            .execute(
+                serde_json::json!({"file_path": path.to_str().unwrap()}),
+                test_ctx(),
+            )
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        assert!(text.contains("empty") || text.is_empty() || text.trim().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_read_offset_beyond_eof() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("short.txt");
+        std::fs::write(&path, "one\ntwo\n").unwrap();
+
+        let output = ReadTool
+            .execute(
+                serde_json::json!({
+                    "file_path": path.to_str().unwrap(),
+                    "offset": 999
+                }),
+                test_ctx(),
+            )
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        // Should not contain actual file content
+        assert!(!text.contains("one"));
+    }
+
+    #[tokio::test]
+    async fn test_read_line_truncation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("long.txt");
+        let long_line = "x".repeat(3000);
+        std::fs::write(&path, &long_line).unwrap();
+
+        let output = ReadTool
+            .execute(
+                serde_json::json!({"file_path": path.to_str().unwrap()}),
+                test_ctx(),
+            )
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        // Line should be truncated (2000 char limit per line)
+        assert!(text.len() < 2500);
+    }
+
+    #[tokio::test]
+    async fn test_read_offset_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        std::fs::write(&path, "first line\nsecond line\n").unwrap();
+
+        let output = ReadTool
+            .execute(
+                serde_json::json!({
+                    "file_path": path.to_str().unwrap(),
+                    "offset": 0
+                }),
+                test_ctx(),
+            )
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        assert!(text.contains("first line"));
+    }
 }

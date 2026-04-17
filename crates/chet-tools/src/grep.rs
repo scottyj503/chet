@@ -1,9 +1,9 @@
 //! Grep tool — search file contents with regex.
 
 use chet_types::{Tool, ToolContext, ToolDefinition, ToolError, ToolOutput};
-use grep_regex::RegexMatcher;
-use grep_searcher::Searcher;
+use grep_regex::RegexMatcherBuilder;
 use grep_searcher::sinks::UTF8;
+use grep_searcher::{SearcherBuilder, Sink, SinkContext, SinkMatch};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -11,15 +11,12 @@ use std::path::PathBuf;
 pub struct GrepTool;
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 struct GrepInput {
     pattern: String,
     #[serde(default)]
     path: Option<String>,
     #[serde(default = "default_output_mode")]
     output_mode: String,
-    #[serde(default, rename = "type")]
-    file_type: Option<String>,
     #[serde(default)]
     glob: Option<String>,
     #[serde(default)]
@@ -108,14 +105,16 @@ impl Tool for GrepTool {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| ctx.cwd.clone());
 
-            let matcher = RegexMatcher::new_line_matcher(&input.pattern).map_err(|e| {
-                ToolError::InvalidInput {
+            let matcher = RegexMatcherBuilder::new()
+                .case_insensitive(input.case_insensitive)
+                .build(&input.pattern)
+                .map_err(|e| ToolError::InvalidInput {
                     tool: "Grep".into(),
                     message: format!("Invalid regex: {e}"),
-                }
-            })?;
+                })?;
 
             let head_limit = input.head_limit.unwrap_or(0);
+            let context_lines = input.context.unwrap_or(0);
 
             // Use spawn_blocking since grep-searcher is synchronous
             let output_mode = input.output_mode.clone();
@@ -128,6 +127,7 @@ impl Tool for GrepTool {
                     &output_mode,
                     glob_filter.as_deref(),
                     head_limit,
+                    context_lines,
                 )
             })
             .await
@@ -144,11 +144,12 @@ impl Tool for GrepTool {
 }
 
 fn search_files(
-    matcher: &RegexMatcher,
+    matcher: &grep_regex::RegexMatcher,
     path: &std::path::Path,
     output_mode: &str,
     glob_filter: Option<&str>,
     head_limit: usize,
+    context_lines: usize,
 ) -> Result<String, String> {
     let mut results = Vec::new();
 
@@ -162,7 +163,7 @@ fn search_files(
         .map_err(|e| format!("Invalid glob filter: {e}"))?;
 
     if path.is_file() {
-        search_single_file(matcher, path, output_mode, &mut results);
+        search_single_file(matcher, path, output_mode, context_lines, &mut results);
     } else {
         for entry in walkdir::WalkDir::new(path)
             .follow_links(false)
@@ -180,7 +181,13 @@ fn search_files(
                 }
             }
 
-            search_single_file(matcher, entry.path(), output_mode, &mut results);
+            search_single_file(
+                matcher,
+                entry.path(),
+                output_mode,
+                context_lines,
+                &mut results,
+            );
 
             if head_limit > 0 && results.len() >= head_limit {
                 results.truncate(head_limit);
@@ -192,23 +199,71 @@ fn search_files(
     Ok(results.join("\n"))
 }
 
+/// Sink that captures both matching and context lines for content mode.
+struct ContentSink<'a> {
+    results: &'a mut Vec<String>,
+    path: &'a std::path::Path,
+}
+
+impl Sink for ContentSink<'_> {
+    type Error = std::io::Error;
+
+    fn matched(
+        &mut self,
+        _searcher: &grep_searcher::Searcher,
+        mat: &SinkMatch<'_>,
+    ) -> Result<bool, std::io::Error> {
+        let line = std::str::from_utf8(mat.bytes()).unwrap_or("");
+        let line_num = mat.line_number().unwrap_or(0);
+        self.results.push(format!(
+            "{}:{line_num}:{}",
+            self.path.display(),
+            line.trim_end()
+        ));
+        Ok(true)
+    }
+
+    fn context(
+        &mut self,
+        _searcher: &grep_searcher::Searcher,
+        ctx: &SinkContext<'_>,
+    ) -> Result<bool, std::io::Error> {
+        let line = std::str::from_utf8(ctx.bytes()).unwrap_or("");
+        let line_num = ctx.line_number().unwrap_or(0);
+        self.results.push(format!(
+            "{}:{line_num}-{}",
+            self.path.display(),
+            line.trim_end()
+        ));
+        Ok(true)
+    }
+
+    fn context_break(
+        &mut self,
+        _searcher: &grep_searcher::Searcher,
+    ) -> Result<bool, std::io::Error> {
+        self.results.push("--".to_string());
+        Ok(true)
+    }
+}
+
 fn search_single_file(
-    matcher: &RegexMatcher,
+    matcher: &grep_regex::RegexMatcher,
     path: &std::path::Path,
     output_mode: &str,
+    context_lines: usize,
     results: &mut Vec<String>,
 ) {
-    let mut searcher = Searcher::new();
-
     match output_mode {
         "files_with_matches" => {
+            let mut searcher = SearcherBuilder::new().build();
             let mut found = false;
             let _ = searcher.search_path(
                 matcher,
                 path,
                 UTF8(|_line_num, _line| {
                     found = true;
-                    Ok(false) // Stop after first match
+                    Ok(false)
                 }),
             );
             if found {
@@ -216,6 +271,7 @@ fn search_single_file(
             }
         }
         "count" => {
+            let mut searcher = SearcherBuilder::new().build();
             let mut count = 0u64;
             let _ = searcher.search_path(
                 matcher,
@@ -230,15 +286,12 @@ fn search_single_file(
             }
         }
         _ => {
-            // "content" mode
-            let _ = searcher.search_path(
-                matcher,
-                path,
-                UTF8(|line_num, line| {
-                    results.push(format!("{}:{line_num}:{}", path.display(), line.trim_end()));
-                    Ok(true)
-                }),
-            );
+            let mut searcher = SearcherBuilder::new()
+                .before_context(context_lines)
+                .after_context(context_lines)
+                .line_number(true)
+                .build();
+            let _ = searcher.search_path(matcher, path, ContentSink { results, path });
         }
     }
 }
@@ -329,5 +382,118 @@ mod tests {
             _ => panic!("expected text"),
         };
         assert!(text.contains(":2"));
+    }
+
+    #[tokio::test]
+    async fn test_grep_case_insensitive() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "Hello World\nhello world\n").unwrap();
+
+        let output = GrepTool
+            .execute(
+                serde_json::json!({
+                    "pattern": "HELLO",
+                    "-i": true,
+                    "path": dir.path().join("test.txt").to_str().unwrap(),
+                    "output_mode": "count"
+                }),
+                test_ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        assert!(text.contains(":2"));
+    }
+
+    #[tokio::test]
+    async fn test_grep_context_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "before\nmatch_line\nafter\n").unwrap();
+
+        let output = GrepTool
+            .execute(
+                serde_json::json!({
+                    "pattern": "match_line",
+                    "path": dir.path().join("test.txt").to_str().unwrap(),
+                    "output_mode": "content",
+                    "context": 1
+                }),
+                test_ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        assert!(text.contains("before"));
+        assert!(text.contains("match_line"));
+        assert!(text.contains("after"));
+    }
+
+    #[tokio::test]
+    async fn test_grep_invalid_regex() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "content\n").unwrap();
+
+        let result = GrepTool
+            .execute(
+                serde_json::json!({"pattern": "[invalid"}),
+                test_ctx_with_dir(dir.path()),
+            )
+            .await;
+
+        assert!(matches!(result, Err(ToolError::InvalidInput { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_grep_no_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "hello world\n").unwrap();
+
+        let output = GrepTool
+            .execute(
+                serde_json::json!({"pattern": "zzz_no_match"}),
+                test_ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        assert_eq!(text, "No matches found");
+    }
+
+    #[tokio::test]
+    async fn test_grep_head_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..10 {
+            std::fs::write(dir.path().join(format!("f{i}.txt")), "match_me\n").unwrap();
+        }
+
+        let output = GrepTool
+            .execute(
+                serde_json::json!({
+                    "pattern": "match_me",
+                    "head_limit": 3
+                }),
+                test_ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3);
     }
 }

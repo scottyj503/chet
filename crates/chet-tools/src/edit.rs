@@ -236,4 +236,85 @@ mod tests {
 
         assert!(output.is_error);
     }
+
+    #[tokio::test]
+    async fn test_edit_file_not_found() {
+        let result = EditTool
+            .execute(
+                serde_json::json!({
+                    "file_path": "/tmp/nonexistent_chet_test_edit.txt",
+                    "old_string": "foo",
+                    "new_string": "bar"
+                }),
+                test_ctx(),
+            )
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_edit_identical_strings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        std::fs::write(&path, "hello world\n").unwrap();
+
+        let output = EditTool
+            .execute(
+                serde_json::json!({
+                    "file_path": path.to_str().unwrap(),
+                    "old_string": "hello",
+                    "new_string": "hello"
+                }),
+                test_ctx(),
+            )
+            .await
+            .unwrap();
+
+        assert!(output.is_error);
+    }
+
+    #[tokio::test]
+    async fn test_edit_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("empty.txt");
+        std::fs::write(&path, "").unwrap();
+
+        let output = EditTool
+            .execute(
+                serde_json::json!({
+                    "file_path": path.to_str().unwrap(),
+                    "old_string": "anything",
+                    "new_string": "replacement"
+                }),
+                test_ctx(),
+            )
+            .await
+            .unwrap();
+
+        assert!(output.is_error);
+    }
+
+    #[tokio::test]
+    async fn test_edit_multiline() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        std::fs::write(&path, "line one\nline two\nline three\n").unwrap();
+
+        let output = EditTool
+            .execute(
+                serde_json::json!({
+                    "file_path": path.to_str().unwrap(),
+                    "old_string": "line one\nline two",
+                    "new_string": "replaced block"
+                }),
+                test_ctx(),
+            )
+            .await
+            .unwrap();
+
+        assert!(!output.is_error);
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "replaced block\nline three\n");
+    }
 }

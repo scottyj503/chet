@@ -372,4 +372,112 @@ mod tests {
         assert_eq!(extract_cd_target("cd foo && ls"), None);
         assert_eq!(extract_cd_target("echo hi"), None);
     }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_bash_stderr_capture() {
+        let tool = BashTool::new();
+        let output = tool
+            .execute(serde_json::json!({"command": "echo err >&2"}), test_ctx())
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        assert!(text.contains("err"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_bash_empty_output() {
+        let tool = BashTool::new();
+        let output = tool
+            .execute(serde_json::json!({"command": "true"}), test_ctx())
+            .await
+            .unwrap();
+
+        assert!(!output.is_error);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_bash_invalid_input() {
+        let tool = BashTool::new();
+        let result = tool
+            .execute(serde_json::json!({"wrong_field": "echo hi"}), test_ctx())
+            .await;
+
+        assert!(matches!(result, Err(ToolError::InvalidInput { .. })));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_bash_large_output_truncation() {
+        let tool = BashTool::new();
+        // Generate >30KB of output
+        let output = tool
+            .execute(
+                serde_json::json!({"command": "yes | head -5000"}),
+                test_ctx(),
+            )
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        assert!(text.len() <= 35_000);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_bash_cd_persistence() {
+        let tool = BashTool::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let ctx = ToolContext {
+            cwd: tmp.path().to_path_buf(),
+            env: HashMap::new(),
+            sandboxed: false,
+        };
+
+        // cd to a subdirectory
+        let subdir = tmp.path().join("sub");
+        std::fs::create_dir(&subdir).unwrap();
+        tool.execute(
+            serde_json::json!({"command": format!("cd {}", subdir.display())}),
+            ctx.clone(),
+        )
+        .await
+        .unwrap();
+
+        // Next command should run in the subdirectory
+        let output = tool
+            .execute(serde_json::json!({"command": "pwd"}), ctx)
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        assert!(text.contains("sub"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_bash_cd_nonexistent() {
+        let tool = BashTool::new();
+        let output = tool
+            .execute(
+                serde_json::json!({"command": "cd /nonexistent_dir_chet_test_12345"}),
+                test_ctx(),
+            )
+            .await
+            .unwrap();
+
+        assert!(output.is_error);
+    }
 }

@@ -179,4 +179,71 @@ mod tests {
         };
         assert_eq!(text, "No files found");
     }
+
+    #[tokio::test]
+    async fn test_glob_invalid_pattern() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let result = GlobTool
+            .execute(
+                serde_json::json!({"pattern": "[unclosed"}),
+                test_ctx_with_dir(dir.path()),
+            )
+            .await;
+
+        assert!(matches!(result, Err(ToolError::InvalidInput { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_glob_nested_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(dir.path().join("top.rs"), "").unwrap();
+        std::fs::write(sub.join("nested.rs"), "").unwrap();
+        std::fs::write(sub.join("other.txt"), "").unwrap();
+
+        let output = GlobTool
+            .execute(
+                serde_json::json!({"pattern": "**/*.rs"}),
+                test_ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        assert!(text.contains("top.rs"));
+        assert!(text.contains("nested.rs"));
+        assert!(!text.contains("other.txt"));
+    }
+
+    #[tokio::test]
+    async fn test_glob_sort_order() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create files with slight time gaps
+        std::fs::write(dir.path().join("a.txt"), "").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(dir.path().join("b.txt"), "").unwrap();
+
+        let output = GlobTool
+            .execute(
+                serde_json::json!({"pattern": "*.txt"}),
+                test_ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
+
+        let text = match &output.content[0] {
+            chet_types::ToolOutputContent::Text { text } => text,
+            _ => panic!("expected text"),
+        };
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2);
+        // Newest first
+        assert!(lines[0].contains("b.txt"));
+        assert!(lines[1].contains("a.txt"));
+    }
 }

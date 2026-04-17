@@ -154,4 +154,45 @@ mod tests {
 
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new content");
     }
+
+    #[tokio::test]
+    async fn test_write_empty_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("empty.txt");
+
+        let output = WriteTool
+            .execute(
+                serde_json::json!({
+                    "file_path": path.to_str().unwrap(),
+                    "content": ""
+                }),
+                test_ctx(),
+            )
+            .await
+            .unwrap();
+
+        assert!(!output.is_error);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+    }
+
+    #[tokio::test]
+    async fn test_write_content_verification() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("verify.txt");
+        let content = "line 1\nline 2\nline 3\n";
+
+        WriteTool
+            .execute(
+                serde_json::json!({
+                    "file_path": path.to_str().unwrap(),
+                    "content": content
+                }),
+                test_ctx(),
+            )
+            .await
+            .unwrap();
+
+        let written = std::fs::read(&path).unwrap();
+        assert_eq!(written, content.as_bytes());
+    }
 }
