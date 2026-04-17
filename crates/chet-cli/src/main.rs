@@ -69,6 +69,22 @@ struct Cli {
     #[arg(short = 'n', long)]
     name: Option<String>,
 
+    /// Provider to use: anthropic (default), bedrock, vertex
+    #[arg(long)]
+    provider: Option<String>,
+
+    /// AWS region for Bedrock (overrides AWS_REGION)
+    #[arg(long)]
+    aws_region: Option<String>,
+
+    /// Google Cloud project ID for Vertex AI
+    #[arg(long)]
+    vertex_project: Option<String>,
+
+    /// Google Cloud region for Vertex AI (default: us-east5)
+    #[arg(long)]
+    vertex_region: Option<String>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -110,8 +126,8 @@ async fn main() -> Result<()> {
 
     let config = ChetConfig::load_with_project_dir(
         CliOverrides {
-            api_key: cli.api_key,
-            model: cli.model,
+            api_key: cli.api_key.clone(),
+            model: cli.model.clone(),
             max_tokens: cli.max_tokens,
             thinking_budget: cli.thinking_budget,
             effort: cli.effort,
@@ -126,11 +142,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let provider: Arc<dyn Provider> = Arc::new(
-        AnthropicProvider::new(&config.api_key, &config.api_base_url)
-            .context("Failed to create API provider")?
-            .with_retry_config(config.retry.clone()),
-    );
+    let provider: Arc<dyn Provider> = create_provider(&cli, &config).await?;
 
     let is_interactive = cli.print.is_none() && !cli.ludicrous;
 
@@ -285,5 +297,85 @@ fn print_agents(config: &ChetConfig) {
             println!("    system_prompt: {preview}{ellipsis}");
         }
         println!();
+    }
+}
+
+/// Resolve which provider to use and construct it.
+///
+/// Priority: --provider flag > CLAUDE_CODE_USE_BEDROCK/VERTEX env > CHET_USE_BEDROCK/VERTEX env > "anthropic"
+async fn create_provider(cli: &Cli, config: &ChetConfig) -> Result<Arc<dyn Provider>> {
+    let provider_name = resolve_provider_name(cli);
+
+    match provider_name.as_str() {
+        "anthropic" => {
+            let provider = AnthropicProvider::new(&config.api_key, &config.api_base_url)
+                .context("Failed to create Anthropic provider")?
+                .with_retry_config(config.retry.clone());
+            Ok(Arc::new(provider))
+        }
+        #[cfg(feature = "bedrock")]
+        "bedrock" => {
+            let region = cli
+                .aws_region
+                .clone()
+                .or_else(|| std::env::var("AWS_REGION").ok())
+                .or_else(|| std::env::var("AWS_DEFAULT_REGION").ok())
+                .unwrap_or_else(|| "us-east-1".to_string());
+            let provider = chet_bedrock::BedrockProvider::new(&region);
+            Ok(Arc::new(provider))
+        }
+        #[cfg(feature = "vertex")]
+        "vertex" => {
+            let project = cli
+                .vertex_project
+                .clone()
+                .or_else(|| std::env::var("GOOGLE_CLOUD_PROJECT").ok())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Vertex AI requires --vertex-project or GOOGLE_CLOUD_PROJECT env var"
+                    )
+                })?;
+            let region = cli
+                .vertex_region
+                .clone()
+                .or_else(|| std::env::var("GOOGLE_CLOUD_REGION").ok())
+                .unwrap_or_else(|| "us-east5".to_string());
+            let provider = chet_vertex::VertexProvider::new(&project, &region);
+            Ok(Arc::new(provider))
+        }
+        #[cfg(not(feature = "bedrock"))]
+        "bedrock" => Err(anyhow::anyhow!(
+            "Bedrock support not compiled. Rebuild with: cargo install --features bedrock"
+        )),
+        #[cfg(not(feature = "vertex"))]
+        "vertex" => Err(anyhow::anyhow!(
+            "Vertex AI support not compiled. Rebuild with: cargo install --features vertex"
+        )),
+        other => Err(anyhow::anyhow!(
+            "Unknown provider: {other}. Use: anthropic, bedrock, or vertex"
+        )),
+    }
+}
+
+/// Resolve provider name from CLI flag and env vars.
+fn resolve_provider_name(cli: &Cli) -> String {
+    if let Some(ref p) = cli.provider {
+        return p.clone();
+    }
+    // Claude Code compatible env vars
+    if env_is_truthy("CLAUDE_CODE_USE_BEDROCK") || env_is_truthy("CHET_USE_BEDROCK") {
+        return "bedrock".to_string();
+    }
+    if env_is_truthy("CLAUDE_CODE_USE_VERTEX") || env_is_truthy("CHET_USE_VERTEX") {
+        return "vertex".to_string();
+    }
+    "anthropic".to_string()
+}
+
+/// Check if an env var is set to a truthy value (not empty, not "0", not "false").
+fn env_is_truthy(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(val) => !val.is_empty() && val != "0" && val.to_lowercase() != "false",
+        Err(_) => false,
     }
 }

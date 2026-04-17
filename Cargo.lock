@@ -580,6 +580,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "chet-api",
+ "chet-bedrock",
  "chet-config",
  "chet-core",
  "chet-mcp",
@@ -588,6 +589,7 @@ dependencies = [
  "chet-terminal",
  "chet-tools",
  "chet-types",
+ "chet-vertex",
  "chrono",
  "clap",
  "crossterm",

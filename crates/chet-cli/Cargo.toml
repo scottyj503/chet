@@ -36,3 +36,12 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 futures-util = "0.3"
+
+# Optional provider crates (feature-gated)
+chet-bedrock = { workspace = true, optional = true }
+chet-vertex = { workspace = true, optional = true }
+
+[features]
+default = []
+bedrock = ["dep:chet-bedrock"]
+vertex = ["dep:chet-vertex"]
