@@ -119,7 +119,7 @@ Add AWS Bedrock and Google Vertex AI support, building on the existing `Provider
 
 ## Test Summary
 
-- 438 unit tests passing (34 api, 17 config, 16 core/agent+subagent+worktree, 35 tools, 52 permissions, 58 session, 27 types, 153 terminal, 15 cli, 29 mcp)
+- 441 unit tests passing (34 api, 17 config, 16 core/agent+subagent+worktree, 35 tools, 55 permissions, 58 session, 27 types, 153 terminal, 15 cli, 29 mcp)
   - 10 agent integration tests (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state + 1 parallel-failure-isolation + 1 mixed-parallel-sequential)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
@@ -209,9 +209,9 @@ Bugs found and fixed:
 - ~~**Background bash output kill limit**~~: **DONE** — Bash tool now spawns child with piped stdout/stderr, reads via `bounded_read` (cap per stream), and kills the process if total output exceeds 5GB. Prevents runaway processes from exhausting memory.
 - ~~**Session auto-naming from plan content**~~: **DONE** — When user approves a plan, the first heading (or first line) of the plan text becomes the session label (if not already named). `label_from_plan()` strips `#` prefixes, truncates to 60 chars. 4 new tests.
 - **MCP elicitation**: MCP servers can request structured input mid-task via interactive dialog (form fields). New JSON-RPC protocol extension.
-- **`allowRead` sandbox setting**: Re-allow read access within `denyRead` regions for fine-grained sandbox control.
-- **`ExitWorktree` tool**: Allow leaving a worktree session from within (counterpart to `EnterWorktree`).
-- **Auto-compaction circuit breaker**: If auto-compaction is added, stop retrying after 3 consecutive failures.
+- ~~**`allowRead` sandbox setting**~~: **DONE** — Permission evaluation now uses specificity: rules with args (e.g. `file_path:/src/*`) take precedence over rules without. A `permit` with `file_path:/src/*` overrides a broader `block` on `Read`. 3 new tests.
+- ~~**`ExitWorktree` tool**~~: **DONE** — `/worktree exit` slash command restores CWD to original repo when in `--worktree` mode. `Agent::set_cwd()` method added. Git worktree cleaned up on process exit as before.
+- ~~**Auto-compaction circuit breaker**~~: **DONE** — Auto-compaction triggers when context usage exceeds 80%. Circuit breaker disables auto-compact after 3 consecutive failures (manual `/compact` still works). Failure counter resets on success.
 - ~~**`autoMemoryDirectory` setting**~~: **DONE** — `memory_dir` in config.toml overrides default `~/.chet/memory/`. Resolved in `ChetConfig`, flows through `MemoryManager` and both memory tools.
 - ~~**Token estimation audit**~~: **DONE** — Thinking blocks excluded (not in input context). Text uses chars/3.5 (was chars/4). JSON/tool inputs use chars/5. ToolUse/ToolResult add fixed overhead for IDs. 4 new tests.
 - ~~**`StopFailure` hook event**~~: **DONE** — `stop_failure` hook fires on API errors (stream error or network failure) with error message in `tool_output` field. Best-effort, log-only.

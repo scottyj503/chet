@@ -30,6 +30,7 @@ pub(crate) async fn repl(
     stderr_is_tty: bool,
     project_id: Option<String>,
     memory_manager: MemoryManager,
+    original_cwd: Option<std::path::PathBuf>,
 ) -> Result<()> {
     let hooks_engine = Arc::clone(&permissions);
     let mut agent = create_agent(
@@ -164,6 +165,9 @@ pub(crate) async fn repl(
     };
 
     let mut plan_mode = false;
+    let mut auto_compact_failures: u32 = 0;
+    const AUTO_COMPACT_THRESHOLD: f64 = 80.0;
+    const AUTO_COMPACT_MAX_FAILURES: u32 = 3;
 
     loop {
         let prompt = if plan_mode { "plan> " } else { "> " };
@@ -257,6 +261,17 @@ pub(crate) async fn repl(
                     }
                     Err(msg) => eprintln!("{msg}"),
                 }
+            }
+            continue;
+        }
+
+        // Handle /worktree exit
+        if input == "/worktree exit" || input == "/worktree" {
+            if let Some(ref orig) = original_cwd {
+                agent.set_cwd(orig.clone());
+                eprintln!("Exited worktree. CWD restored to: {}", orig.display());
+            } else {
+                eprintln!("Not running in a worktree.");
             }
             continue;
         }
@@ -405,6 +420,45 @@ pub(crate) async fn repl(
                 } else {
                     // Non-TTY: print brief context line
                     eprintln!("{}", context_tracker.format_brief(&info));
+                }
+
+                // Auto-compact when context usage is high
+                if info.usage_percent() > AUTO_COMPACT_THRESHOLD
+                    && auto_compact_failures < AUTO_COMPACT_MAX_FAILURES
+                {
+                    if let Some(result) =
+                        chet_session::compact(&session.messages, session.metadata.label.as_deref())
+                    {
+                        let removed = result.messages_removed;
+                        session.compaction_count += 1;
+                        session.messages = result.new_messages;
+                        session.updated_at = Utc::now();
+                        if let Err(e) = store
+                            .write_compaction_archive(
+                                session.id,
+                                session.compaction_count,
+                                &result.archive_markdown,
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to write compaction archive: {e}");
+                        }
+                        if let Err(e) = store.save(&session).await {
+                            tracing::warn!("Failed to save after auto-compact: {e}");
+                        }
+                        eprintln!(
+                            "(auto-compacted: removed {removed} messages, {} remaining)",
+                            session.messages.len()
+                        );
+                        auto_compact_failures = 0;
+                    } else {
+                        auto_compact_failures += 1;
+                        if auto_compact_failures >= AUTO_COMPACT_MAX_FAILURES {
+                            eprintln!(
+                                "Warning: auto-compaction disabled after {AUTO_COMPACT_MAX_FAILURES} consecutive failures."
+                            );
+                        }
+                    }
                 }
             }
             Err(e) => {

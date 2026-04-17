@@ -103,6 +103,11 @@ impl Agent {
         self.read_only_mode = enabled;
     }
 
+    /// Update the agent's working directory (e.g., after exiting a worktree).
+    pub fn set_cwd(&mut self, cwd: PathBuf) {
+        self.cwd = cwd;
+    }
+
     /// Run the agent loop: send messages, handle tool calls, repeat until done.
     ///
     /// The callback receives AgentEvents as they occur (for streaming UI).

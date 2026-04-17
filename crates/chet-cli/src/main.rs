@@ -216,6 +216,11 @@ async fn main() -> Result<()> {
             )
         });
 
+        let original_cwd = if worktree_requested {
+            Some(cwd.clone())
+        } else {
+            None
+        };
         repl::repl(
             provider,
             engine,
@@ -227,6 +232,7 @@ async fn main() -> Result<()> {
             stderr_is_tty,
             project_id,
             memory_manager,
+            original_cwd,
         )
         .await
     };

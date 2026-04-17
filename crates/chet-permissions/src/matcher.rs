@@ -36,8 +36,10 @@ impl RuleMatcher {
 
     /// Find the highest-priority matching rule from a list of rules.
     ///
-    /// Priority: block > permit > prompt.
-    /// Returns the permission level + description of the winning rule, or None if no rules match.
+    /// Priority: most specific rule wins (rules with args > rules without),
+    /// then within same specificity: block > permit > prompt.
+    /// This allows `permit` rules with `file_path:/src/*` to override
+    /// a broader `block` rule on the same tool.
     pub fn evaluate(
         rules: &[PermissionRule],
         tool_name: &str,
@@ -52,13 +54,30 @@ impl RuleMatcher {
             return None;
         }
 
-        // block > permit > prompt — find the winning rule for its description
-        let winner = if let Some(r) = matching.iter().find(|r| r.level == PermissionLevel::Block) {
+        // Partition into specific (has args) and general (no args) rules
+        let specific: Vec<&&PermissionRule> =
+            matching.iter().filter(|r| r.args.is_some()).collect();
+        let general: Vec<&&PermissionRule> = matching.iter().filter(|r| r.args.is_none()).collect();
+
+        // Specific rules win over general rules. Within each group: block > permit > prompt.
+        let candidates = if !specific.is_empty() {
+            specific
+        } else {
+            general
+        };
+
+        let winner = if let Some(r) = candidates
+            .iter()
+            .find(|r| r.level == PermissionLevel::Block)
+        {
             r
-        } else if let Some(r) = matching.iter().find(|r| r.level == PermissionLevel::Permit) {
+        } else if let Some(r) = candidates
+            .iter()
+            .find(|r| r.level == PermissionLevel::Permit)
+        {
             r
         } else {
-            matching.first().unwrap()
+            candidates.first().unwrap()
         };
 
         Some(EvaluateResult {
@@ -415,5 +434,64 @@ mod tests {
             "Read",
             &json!({"file_path": "/home/user/file.txt"})
         ));
+    }
+
+    #[test]
+    fn test_allow_read_overrides_broad_block() {
+        // Block Read globally, but permit Read for /src/*
+        let rules = vec![
+            rule("Read", None, PermissionLevel::Block),
+            rule("Read", Some("file_path:/src/*"), PermissionLevel::Permit),
+        ];
+        // /src/main.rs matches the specific permit rule — should be Permit
+        let result = RuleMatcher::evaluate(&rules, "Read", &json!({"file_path": "/src/main.rs"}));
+        let result = result.unwrap();
+        assert_eq!(result.level, PermissionLevel::Permit);
+
+        // /etc/passwd only matches the general block rule — should be Block
+        let result = RuleMatcher::evaluate(&rules, "Read", &json!({"file_path": "/etc/passwd"}));
+        let result = result.unwrap();
+        assert_eq!(result.level, PermissionLevel::Block);
+    }
+
+    #[test]
+    fn test_specific_block_beats_general_permit() {
+        // Permit Read globally, but block Read for /etc/*
+        let rules = vec![
+            rule("Read", None, PermissionLevel::Permit),
+            rule("Read", Some("file_path:/etc/*"), PermissionLevel::Block),
+        ];
+        // /etc/shadow matches the specific block rule — should be Block
+        let result = RuleMatcher::evaluate(&rules, "Read", &json!({"file_path": "/etc/shadow"}));
+        let result = result.unwrap();
+        assert_eq!(result.level, PermissionLevel::Block);
+
+        // /src/lib.rs only matches the general permit — should be Permit
+        let result = RuleMatcher::evaluate(&rules, "Read", &json!({"file_path": "/src/lib.rs"}));
+        let result = result.unwrap();
+        assert_eq!(result.level, PermissionLevel::Permit);
+    }
+
+    #[test]
+    fn test_multiple_specific_rules_block_wins() {
+        // Two specific rules: permit /src/*, block /src/secret/*
+        let rules = vec![
+            rule("Read", Some("file_path:/src/*"), PermissionLevel::Permit),
+            rule(
+                "Read",
+                Some("file_path:/src/secret/*"),
+                PermissionLevel::Block,
+            ),
+        ];
+        // /src/secret/key.rs matches both specific rules — block wins
+        let result =
+            RuleMatcher::evaluate(&rules, "Read", &json!({"file_path": "/src/secret/key.rs"}));
+        let result = result.unwrap();
+        assert_eq!(result.level, PermissionLevel::Block);
+
+        // /src/main.rs matches only the permit rule
+        let result = RuleMatcher::evaluate(&rules, "Read", &json!({"file_path": "/src/main.rs"}));
+        let result = result.unwrap();
+        assert_eq!(result.level, PermissionLevel::Permit);
     }
 }
