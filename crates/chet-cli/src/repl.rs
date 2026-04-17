@@ -1,37 +1,34 @@
 //! Interactive REPL loop.
 
 use anyhow::Result;
-use chet_config::ChetConfig;
-use chet_mcp::McpManager;
 use chet_permissions::PermissionEngine;
-use chet_session::{ContextTracker, MemoryManager, Session};
+use chet_session::{ContextTracker, Session};
 use chet_terminal::{
     LineEditor, ReadLineResult, SlashCommandCompleter, StatusLine, StatusLineData,
 };
-use chet_types::{Effort, provider::Provider};
+use chet_types::Effort;
 use chrono::Utc;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 use crate::commands::{self, SlashResult};
+use crate::context::{CommandContext, ReplContext, ReplStartup, UIContext};
 use crate::plan::{self, PlanApproval};
 use crate::prompts::{plan_system_prompt, print_usage, system_prompt, user_message};
 use crate::runner::{self, create_agent};
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn repl(
-    provider: Arc<dyn Provider>,
-    permissions: Arc<PermissionEngine>,
-    config: &ChetConfig,
-    cwd: &std::path::Path,
-    resume_id: Option<String>,
-    session_name: Option<String>,
-    mut mcp_manager: Option<McpManager>,
-    stderr_is_tty: bool,
-    project_id: Option<String>,
-    memory_manager: MemoryManager,
-    original_cwd: Option<std::path::PathBuf>,
-) -> Result<()> {
+pub(crate) async fn repl(ctx: ReplContext<'_>, startup: ReplStartup) -> Result<()> {
+    let ReplContext {
+        provider,
+        permissions,
+        config,
+        cwd,
+        original_cwd,
+        mut mcp_manager,
+        memory_manager,
+        stderr_is_tty,
+        project_id,
+    } = ctx;
     let hooks_engine = Arc::clone(&permissions);
     let mut agent = create_agent(
         provider,
@@ -76,7 +73,7 @@ pub(crate) async fn repl(
     );
 
     // Load or create session
-    let mut session = match &resume_id {
+    let mut session = match &startup.resume_id {
         Some(prefix) => {
             let s = store
                 .load_by_prefix(prefix)
@@ -89,7 +86,7 @@ pub(crate) async fn repl(
     };
 
     // Apply --name flag (overrides auto-label, even on resumed sessions)
-    if let Some(name) = session_name {
+    if let Some(name) = startup.session_name {
         session.metadata.label = Some(name);
     }
 
@@ -279,15 +276,17 @@ pub(crate) async fn repl(
         // Handle slash commands
         if let Some(handled) = commands::handle_slash_command(
             input,
-            &mut session,
-            &store,
-            &context_tracker,
-            &system,
-            &mut mcp_manager,
-            &memory_manager,
-            project_id.as_deref(),
-            &status_line,
-            &hooks_engine,
+            CommandContext {
+                session: &mut session,
+                store: &store,
+                context_tracker: &context_tracker,
+                system_prompt: &system,
+                mcp_manager: &mut mcp_manager,
+                memory_manager: &memory_manager,
+                project_id: project_id.as_deref(),
+                status_line: &status_line,
+                hooks_engine: &hooks_engine,
+            },
         )
         .await
         {
@@ -322,9 +321,11 @@ pub(crate) async fn repl(
         match runner::run_agent(
             &agent,
             &mut session.messages,
-            true,
-            stderr_is_tty,
-            status_line.clone(),
+            UIContext {
+                stdout_is_tty: true,
+                stderr_is_tty,
+                status_line: status_line.clone(),
+            },
         )
         .await
         {

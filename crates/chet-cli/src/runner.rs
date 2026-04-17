@@ -5,12 +5,14 @@ use chet_config::ChetConfig;
 use chet_core::{Agent, AgentEvent, SubagentTool};
 use chet_mcp::{McpManager, McpTool};
 use chet_permissions::PermissionEngine;
-use chet_terminal::{StatusLine, StreamingMarkdownRenderer};
+use chet_terminal::StreamingMarkdownRenderer;
 use chet_tools::ToolRegistry;
 use chet_types::{Message, Usage, provider::Provider};
 use std::io::{self, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
+
+use crate::context::UIContext;
 
 /// Create a fully-configured Agent with all tools registered.
 pub(crate) fn create_agent(
@@ -69,10 +71,12 @@ pub(crate) fn create_agent(
 pub(crate) async fn run_agent(
     agent: &Agent,
     messages: &mut Vec<Message>,
-    stdout_is_tty: bool,
-    stderr_is_tty: bool,
-    status_line: Option<Arc<Mutex<StatusLine>>>,
+    ui: UIContext,
 ) -> Result<Usage> {
+    let stdout_is_tty = ui.stdout_is_tty;
+    let stderr_is_tty = ui.stderr_is_tty;
+    let status_line = ui.status_line;
+
     let stdout = io::stdout();
     let mut renderer = if stdout_is_tty {
         StreamingMarkdownRenderer::new(Box::new(stdout.lock()))

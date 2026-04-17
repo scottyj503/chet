@@ -1,6 +1,7 @@
 //! Chet CLI — an AI-powered coding assistant.
 
 mod commands;
+mod context;
 mod plan;
 mod prompt;
 mod prompts;
@@ -203,8 +204,16 @@ async fn main() -> Result<()> {
         );
         agent.set_system_prompt(prompts::system_prompt(&effective_cwd, &memory_section));
         let mut messages = vec![prompts::user_message(&prompt)];
-        let usage =
-            runner::run_agent(&agent, &mut messages, stdout_is_tty, stderr_is_tty, None).await?;
+        let usage = runner::run_agent(
+            &agent,
+            &mut messages,
+            context::UIContext {
+                stdout_is_tty,
+                stderr_is_tty,
+                status_line: None,
+            },
+        )
+        .await?;
         prompts::print_usage(&usage);
         if let Some(manager) = mcp_manager {
             manager.shutdown().await;
@@ -234,17 +243,21 @@ async fn main() -> Result<()> {
             None
         };
         repl::repl(
-            provider,
-            engine,
-            &config,
-            &effective_cwd,
-            cli.resume,
-            cli.name,
-            mcp_manager,
-            stderr_is_tty,
-            project_id,
-            memory_manager,
-            original_cwd,
+            context::ReplContext {
+                provider,
+                permissions: engine,
+                config: &config,
+                cwd: &effective_cwd,
+                original_cwd,
+                mcp_manager,
+                memory_manager,
+                stderr_is_tty,
+                project_id,
+            },
+            context::ReplStartup {
+                resume_id: cli.resume,
+                session_name: cli.name,
+            },
         )
         .await
     };

@@ -1,11 +1,12 @@
 //! Slash command dispatch and handlers.
 
 use chet_permissions::PermissionEngine;
-use chet_session::{ContextTracker, MemoryManager, Session, SessionStore, compact};
+use chet_session::{MemoryManager, Session, SessionStore, compact};
 use chet_terminal::StatusLine;
 use chrono::Utc;
 use std::sync::{Arc, Mutex};
 
+use crate::context::CommandContext;
 use crate::prompts::print_usage;
 
 pub(crate) enum SlashResult {
@@ -14,19 +15,21 @@ pub(crate) enum SlashResult {
     Unknown,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_slash_command(
     input: &str,
-    session: &mut Session,
-    store: &SessionStore,
-    context_tracker: &ContextTracker,
-    system_prompt: &str,
-    mcp_manager: &mut Option<chet_mcp::McpManager>,
-    memory_manager: &MemoryManager,
-    project_id: Option<&str>,
-    status_line: &Option<Arc<Mutex<StatusLine>>>,
-    hooks_engine: &Arc<PermissionEngine>,
+    ctx: CommandContext<'_>,
 ) -> Option<SlashResult> {
+    let CommandContext {
+        session,
+        store,
+        context_tracker,
+        system_prompt,
+        mcp_manager,
+        memory_manager,
+        project_id,
+        status_line,
+        hooks_engine,
+    } = ctx;
     if !input.starts_with('/') {
         return None;
     }
