@@ -793,6 +793,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "chet-vertex"
+version = "0.2.0"
+dependencies = [
+ "chet-types",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
