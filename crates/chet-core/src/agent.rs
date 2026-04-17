@@ -1,6 +1,6 @@
 //! The core agent loop that orchestrates conversation with tool use.
 
-use crate::util::{fire_stop_failure_hook, persist_tool_result, truncate_for_display};
+use crate::util::{finalize_tool_result, fire_stop_failure_hook};
 use chet_permissions::{
     HookEvent, HookInput, PermissionDecision, PermissionEngine, PermissionLevel, PermissionRule,
     PromptResponse,
@@ -203,7 +203,9 @@ impl Agent {
                         Err(e) => ToolOutput::error(e.to_string()),
                     };
                     tool_results[idx] = Some(
-                        self.finalize_tool_result(
+                        finalize_tool_result(
+                            &self.permissions,
+                            &self.cwd,
                             &tool_id,
                             &tool_name,
                             &tool_input,
@@ -232,7 +234,9 @@ impl Agent {
                     Err(e) => ToolOutput::error(e.to_string()),
                 };
                 tool_results[idx] = Some(
-                    self.finalize_tool_result(
+                    finalize_tool_result(
+                        &self.permissions,
+                        &self.cwd,
                         &tool_id,
                         &tool_name,
                         &tool_input,
@@ -589,97 +593,12 @@ impl Agent {
             permitted_tools,
         }
     }
-
-    /// Emit ToolEnd event, run after_tool hooks, and build the ToolResult ContentBlock.
-    async fn finalize_tool_result(
-        &self,
-        tool_id: &str,
-        tool_name: &str,
-        tool_input: &serde_json::Value,
-        output: ToolOutput,
-        on_event: &mut impl FnMut(AgentEvent),
-    ) -> ContentBlock {
-        let output_text = output
-            .content
-            .iter()
-            .filter_map(|c| match c {
-                chet_types::ToolOutputContent::Text { text } => Some(text.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        on_event(AgentEvent::ToolEnd {
-            name: tool_name.to_string(),
-            output: truncate_for_display(&output_text, 200),
-            is_error: output.is_error,
-        });
-
-        // Run after_tool hooks (log-only)
-        let after_hook_input = HookInput {
-            event: HookEvent::AfterTool,
-            tool_name: Some(tool_name.to_string()),
-            tool_input: Some(tool_input.clone()),
-            tool_output: Some(truncate_for_display(&output_text, 1000)),
-            is_error: Some(output.is_error),
-            worktree_path: None,
-            worktree_source: None,
-            messages_removed: None,
-            messages_remaining: None,
-            config_path: None,
-        };
-        if let Err(msg) = self
-            .permissions
-            .run_hooks(&HookEvent::AfterTool, &after_hook_input)
-            .await
-        {
-            tracing::warn!("after_tool hook error: {msg}");
-        }
-
-        /// Tool results larger than this are persisted to disk and truncated in context.
-        const MAX_INLINE_RESULT_CHARS: usize = 50_000;
-
-        let content = output
-            .content
-            .into_iter()
-            .map(|c| match c {
-                chet_types::ToolOutputContent::Text { text }
-                    if text.len() > MAX_INLINE_RESULT_CHARS =>
-                {
-                    // Persist full result to disk, truncate in context
-                    let path = persist_tool_result(&self.cwd, tool_name, tool_id, &text);
-                    let truncated = chet_types::truncate_str(&text, MAX_INLINE_RESULT_CHARS);
-                    let note = match path {
-                        Some(p) => format!(
-                            "{truncated}\n\n(output truncated from {} chars — full result at {})",
-                            text.len(),
-                            p.display()
-                        ),
-                        None => format!(
-                            "{truncated}\n\n(output truncated from {} chars)",
-                            text.len()
-                        ),
-                    };
-                    ToolResultContent::Text { text: note }
-                }
-                chet_types::ToolOutputContent::Text { text } => ToolResultContent::Text { text },
-                chet_types::ToolOutputContent::Image { source } => {
-                    ToolResultContent::Image { source }
-                }
-            })
-            .collect();
-
-        ContentBlock::ToolResult {
-            tool_use_id: tool_id.to_string(),
-            content,
-            is_error: if output.is_error { Some(true) } else { None },
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::truncate_for_display;
     use chet_api::AnthropicProvider;
 
     fn make_provider() -> Arc<dyn Provider> {
