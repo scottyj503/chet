@@ -126,6 +126,7 @@ impl RuleMatcher {
 
 /// Split a shell command into subcommands on `&&`, `||`, `;`, and `|`.
 /// Each subcommand is trimmed. Preserves quoted strings (single/double).
+#[allow(clippy::collapsible_match)]
 fn split_subcommands(command: &str) -> Vec<&str> {
     let mut results = Vec::new();
     let mut start = 0;
