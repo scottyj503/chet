@@ -3,7 +3,6 @@
 mod client;
 mod provider;
 mod retry;
-mod sse;
 mod stream;
 
 pub use client::ApiClient;
