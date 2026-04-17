@@ -19,7 +19,7 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 - **Tool output polish** — spinner during API/tool execution, styled tool icons (⚡✓✗⊘), Ctrl+C returns to prompt
 - **Subagents** — delegate complex sub-tasks to child agents that run silently and return results; supports `isolation: "worktree"` for parallel-safe execution
 - **Retry & backoff** — automatic retry with exponential backoff and jitter for 429/529/5xx/network errors, respects `Retry-After` header
-- **Provider abstraction** — `Provider` trait decouples the agent loop from any specific LLM API; ships with `AnthropicProvider`
+- **Provider abstraction** — `Provider` trait decouples the agent loop from any specific LLM API; ships with `AnthropicProvider`, `BedrockProvider` (feature-gated), and `VertexProvider` (feature-gated)
 - **Plan mode** — `/plan` toggles read-only exploration mode (Read/Glob/Grep only), produces structured plans, approve/refine/discard workflow; `/plan fix the bug` enters with immediate prompt
 - **Persistent memory** — global and per-project memory files loaded into system prompt, writable via tools, survives across sessions; `/memory` command to view/edit/reset
 - **Line editor** — arrow keys, Home/End, word movement, history, tab completion for slash commands
@@ -97,9 +97,29 @@ Options:
       --worktree                       Run in an isolated git worktree
       --worktree-branch <BRANCH>       Branch name for the worktree (implies --worktree)
       --ludicrous                      Skip all permission checks
+      --provider <PROVIDER>             Provider: anthropic (default), bedrock, vertex
+      --aws-region <REGION>             AWS region for Bedrock
+      --vertex-project <PROJECT>        Google Cloud project for Vertex AI
+      --vertex-region <REGION>          Google Cloud region for Vertex AI (default: us-east5)
       --verbose                        Enable debug logging
   -h, --help                           Print help
   -V, --version                        Print version
+```
+
+### Multi-Provider Support
+
+```bash
+# AWS Bedrock (requires --features bedrock)
+cargo install --git https://github.com/scottyj503/chet --features bedrock
+chet --provider bedrock --aws-region us-east-1
+
+# Google Vertex AI (requires --features vertex)
+cargo install --git https://github.com/scottyj503/chet --features vertex
+chet --provider vertex --vertex-project my-project --vertex-region us-east5
+
+# Claude Code compatible env vars
+CLAUDE_CODE_USE_BEDROCK=1 chet
+CHET_USE_VERTEX=1 GOOGLE_CLOUD_PROJECT=my-proj chet
 ```
 
 ### REPL Commands
@@ -193,7 +213,9 @@ Chet is a Cargo workspace with focused crates:
 | `chet-api` | Anthropic API client, SSE streaming, `AnthropicProvider` |
 | `chet-tools` | Tool trait + built-in tools (Read, Write, Edit, Bash, Glob, Grep, MemoryRead, MemoryWrite); Subagent tool lives in chet-core |
 | `chet-config` | Multi-tier TOML settings |
-| `chet-types` | Shared types, error hierarchy, `Provider` trait, Unicode-safe string utils |
+| `chet-bedrock` | AWS Bedrock provider (feature-gated: SigV4 signing, EventStream parser) |
+| `chet-vertex` | Google Vertex AI provider (feature-gated: Google ADC, SSE reuse) |
+| `chet-types` | Shared types, error hierarchy, `Provider` trait, SSE parser, Unicode-safe string utils |
 | `chet-permissions` | Permission engine, rule matcher, hook runner |
 | `chet-session` | Session persistence, context tracking, compaction |
 | `chet-terminal` | Custom line editor, streaming markdown, syntax highlighting |
@@ -208,7 +230,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (441 tests — runs fast, no API key needed)
+# Unit tests (458 tests — runs fast, no API key needed)
 # 27 integration tests (ignored by default, run with --ignored)
 cargo test --workspace
 
