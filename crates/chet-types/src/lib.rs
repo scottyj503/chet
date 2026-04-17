@@ -3,6 +3,7 @@
 pub mod error;
 pub mod message;
 pub mod provider;
+pub mod sse;
 pub mod tool;
 pub mod util;
 

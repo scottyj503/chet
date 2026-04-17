@@ -119,7 +119,7 @@ Add AWS Bedrock and Google Vertex AI support, building on the existing `Provider
 
 ## Test Summary
 
-- 441 unit tests passing (34 api, 17 config, 16 core/agent+subagent+worktree, 35 tools, 55 permissions, 58 session, 27 types, 153 terminal, 15 cli, 29 mcp)
+- 442 unit tests passing (34 api, 17 config, 16 core/agent+subagent+worktree, 35 tools, 55 permissions, 58 session, 27 types, 153 terminal, 15 cli, 29 mcp)
   - 10 agent integration tests (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state + 1 parallel-failure-isolation + 1 mixed-parallel-sequential)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
