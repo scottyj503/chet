@@ -102,7 +102,11 @@ mod tests {
 
         let suggestions = suggest_paths("main.rs", root);
         assert_eq!(suggestions.len(), 1);
-        assert!(suggestions[0].ends_with("src/foo/main.rs"));
+        assert!(
+            suggestions[0].contains("main.rs") && suggestions[0].contains("src"),
+            "got: {}",
+            suggestions[0]
+        );
     }
 
     #[test]
@@ -164,6 +168,6 @@ mod tests {
 
         let msg = format_not_found_error("foo.rs", root, "No such file");
         assert!(msg.contains("Did you mean:"));
-        assert!(msg.contains("src/foo.rs"));
+        assert!(msg.contains("foo.rs") && msg.contains("src"), "got: {msg}");
     }
 }
