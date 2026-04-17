@@ -19,9 +19,9 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
-futures-util = "0.3"
+futures-util = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
 chet-api = { workspace = true }
-futures-util = "0.3"
+futures-util = { workspace = true }

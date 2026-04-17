@@ -18,7 +18,7 @@ const FRAME_MS: u64 = 80;
 pub struct Spinner {
     active: Arc<AtomicBool>,
     message: Arc<Mutex<String>>,
-    handle: JoinHandle<()>,
+    handle: Option<JoinHandle<()>>,
 }
 
 impl Spinner {
@@ -50,7 +50,7 @@ impl Spinner {
         Self {
             active,
             message: msg,
-            handle,
+            handle: Some(handle),
         }
     }
 
@@ -65,11 +65,22 @@ impl Spinner {
     }
 
     /// Stop the spinner, abort the background task, and clear the line.
-    pub async fn stop(self, is_tty: bool) {
+    pub async fn stop(mut self, is_tty: bool) {
         self.active.store(false, Ordering::Relaxed);
-        self.handle.abort();
-        let _ = self.handle.await;
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
         clear_line(is_tty);
+    }
+}
+
+impl Drop for Spinner {
+    fn drop(&mut self) {
+        self.active.store(false, Ordering::Relaxed);
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
     }
 }
 

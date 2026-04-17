@@ -46,8 +46,14 @@ impl StdioTransport {
             source: e,
         })?;
 
-        let stdin = child.stdin.take().expect("stdin was piped");
-        let stdout = child.stdout.take().expect("stdout was piped");
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| McpError::Protocol("Failed to obtain piped stdin".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| McpError::Protocol("Failed to obtain piped stdout".into()))?;
 
         let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<JsonRpcResponse>>>> =
             Arc::new(Mutex::new(HashMap::new()));

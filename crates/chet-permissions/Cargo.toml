@@ -15,5 +15,5 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-globset = "0.4"
+globset = { workspace = true }
 reqwest = { workspace = true }

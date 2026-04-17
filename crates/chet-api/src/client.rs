@@ -64,6 +64,7 @@ impl ApiClient {
         let body = serde_json::to_string(request).map_err(|e| ApiError::BadRequest {
             message: format!("Failed to serialize request: {e}"),
         })?;
+        let body_bytes = bytes::Bytes::from(body);
 
         for attempt in 0..=self.retry_config.max_retries {
             tracing::debug!(
@@ -76,7 +77,7 @@ impl ApiClient {
                 .http
                 .post(&url)
                 .headers(headers.clone())
-                .body(body.clone())
+                .body(body_bytes.clone())
                 .send()
                 .await;
 

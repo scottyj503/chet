@@ -34,9 +34,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 
-# Async runtime
+# Async runtime & futures
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }
+futures-util = "0.3"
+futures-core = "0.3"
+
+# Binary data
+bytes = "1"
 
 # HTTP & networking
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
@@ -44,6 +49,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # Time & IDs
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+
+# Glob matching
+globset = "0.4"
 
 # Terminal
 crossterm = "0.28"

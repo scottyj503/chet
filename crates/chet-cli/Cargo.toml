@@ -35,7 +35,7 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 clap = { version = "4", features = ["derive"] }
-futures-util = "0.3"
+futures-util = { workspace = true }
 
 # Optional provider crates (feature-gated)
 chet-bedrock = { workspace = true, optional = true }
