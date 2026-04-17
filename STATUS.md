@@ -170,145 +170,97 @@ Bugs found and fixed:
 
 ## Post-v1
 
-- **LSP Client**: Opt-in (default off), --lsp flag or [lsp] config. Grep/Read cover 90% of needs; LSP is heavyweight (1-2GB RAM) and hurts CI/CD. Revisit if users request it. Filter gitignored files from results.
-- ~~**Worktree isolation**~~: **DONE** — `--worktree` flag + subagent `isolation: "worktree"` for parallel agents in isolated git worktrees. `WorktreeCreate`/`WorktreeRemove` hook events, RAII cleanup via `ManagedWorktree`.
-- ~~**Non-interactive mode optimization**~~: **DONE** — TTY detection via `std::io::IsTerminal`, plain markdown passthrough, silent spinner, plain tool events, no ANSI in piped output.
-- ~~**ConfigChange hook event**~~: **DONE** — Background task polls `~/.chet/config.toml` and `.chet/config.toml` mtimes every 5s. On change, fires `config_change` hook with `config_path` in payload. No new deps (uses std mtime instead of notify crate). 2 new tests.
-- ~~**File-not-found path suggestions**~~: **DONE** — Read/Edit tools now walk the repo (via .git discovery) on NotFound and suggest files with matching basenames. Skips target/, node_modules/, .venv/, etc. Cap 5 suggestions, max depth 8. New `path_suggest` module with 6 tests.
-- ~~**Enhanced permission restriction reasons**~~: **DONE** — Block/Prompt messages now include the matched input args: "Tool 'Bash' (command: rm -rf /tmp/foo) blocked by permission (rule: Bash [command:rm *] -> block)". Extracts key string fields (command, file_path, path, url, pattern), truncated at 80 chars. 3 new tests.
-- ~~**Status line**~~: **DONE** — Persistent terminal status bar (DECSTBM scroll region) showing model, context usage, tokens, effort, session ID, plan mode badge, and active tool. Updates in real-time during agent execution. Suspend/resume around line editor. SIGWINCH resize handling. TTY-only (skipped in print mode).
-- ~~**Memory management**~~: **DONE** — Audit complete. Session rules deduplicated (prevents unbounded "always allow" growth). SSE pending_events switched from Vec to VecDeque (O(1) pop_front). History already capped at 1000. MCP/tool registries static after init. Messages bounded by compaction. No unbounded caches found.
-- ~~**`chet agents` CLI command**~~: **DONE** — `chet agents` subcommand lists configured `[agents.<name>]` profiles with their effort, max_turns, disallowed_tools, and system_prompt preview. Uses clap Subcommand pattern.
-- ~~**MCP reconnect resilience**~~: **DONE** — `/mcp reconnect [name]` shuts down and reconnects specified (or all) MCP servers. Unknown names show available servers instead of freezing. McpManager stores config for reconnection.
-- ~~**Session flush on disconnect**~~: **DONE** — SIGHUP handler (unix) cancels the current agent turn via CancellationToken, causing clean return to REPL which auto-saves the session. Same pattern as Ctrl+C.
-- ~~**Auto-memory**~~: **DONE** — MemoryRead/MemoryWrite tools + `/memory` command. Global (`~/.chet/memory/MEMORY.md`) and per-project (`~/.chet/memory/projects/<hash>.md`) scopes. Loaded into system prompt, refreshed after each turn. Atomic writes, $EDITOR support, worktree-safe (hashes original cwd).
-- ~~**Smarter bash permission prefixes**~~: **DONE** — Compound commands split on `&&`, `||`, `;`, `|` (quote-aware) for per-subcommand rule matching. `command:rm *` now catches `cd /tmp && rm -rf /`. 11 new tests.
-- ~~**Config file corruption prevention**~~: **DONE** — All file writes now use atomic tmp+rename: history, Write tool, Edit tool, plan files, compaction archives (sessions and memory already had it). `atomic_write_file` utility in chet-types. 3 new tests.
-- ~~**Tool result disk persistence**~~: **DONE** — Tool results >50K chars persisted to `.chet-tool-output/<tool>-<id>.txt` under CWD, truncated in context with path reference. Model can re-read via Read tool if needed.
-- ~~**`/copy` command**~~: **DONE** — Copies last assistant response to system clipboard (pbcopy/xclip/xsel/clip). Falls back to printing to stdout if clipboard unavailable.
-- ~~**`/model` human-readable labels**~~: **DONE** — `/model` shows "sonnet-4.5 (claude-sonnet-4-5-20250929)". `/sessions` list also uses short names. Reuses existing `shorten_model_name`.
-- ~~**HTTP hooks**~~: **DONE** — Hook commands starting with `http://` or `https://` POST the JSON payload to the URL. Response protocol: 2xx=approve, 403=deny, other=error. Uses reqwest with configurable timeout.
-- ~~**Effort levels**~~: **DONE** — `--effort` CLI flag (low/medium/high) maps to thinking budget_tokens (1024/8192/32768). `/effort` REPL command for per-turn changes. Effort shown in spinner and startup banner. Explicit `--thinking-budget` takes precedence.
-- ~~**Agent name in terminal title**~~: **DONE** — Terminal title set to "chet — <session-id>" on start, updated to "chet — <label>" when auto-label fires, reset on exit. OSC escape sequence, TTY-only.
-- ~~**`InstructionsLoaded` hook event**~~: **DONE** — `instructions_loaded` hook fires after system prompt (with memory) is set at session start. Enables validation hooks on loaded instructions.
-- ~~**Concise subagent reports**~~: **DONE** — Subagent results truncated at 10K chars with "(subagent output truncated from N chars)" marker. Keeps parent context lean.
-- ~~**`/resume` shows most recent prompt**~~: **DONE** — `preview()` now returns the last user text message instead of the first. `/sessions` list shows the most recent prompt for each session. 1 new test.
-- ~~**Skip compaction preamble recap**~~: **DONE** — Compaction summary shortened from verbose "[This conversation was compacted...]" to terse "[Compacted conversation summary:]". Saves ~15 tokens per compaction.
-- ~~**Compaction preserves images for cache reuse**~~: **DONE** — Already handled: `strip_heavy_payloads` only drops Thinking blocks; Image blocks pass through `other => Some(other.clone())`.
-- ~~**Skip skill re-injection on `/resume`**~~: **N/A** — Chet has no skill injection system. No action needed.
-- ~~**MCP binary content to disk**~~: **DONE** — MCP image/binary content decoded from base64, saved to `.chet-mcp-output/mcp-<uuid>.{ext}` with correct extension (png/jpg/pdf/docx/xlsx/mp3/etc). Text reference returned to context instead of raw base64.
-- ~~**Increased output token limits**~~: **DONE** — Default max_tokens bumped from 16k to 64k.
-- ~~**`/effort auto`**~~: **DONE** — `/effort auto` resets effort to default (no explicit thinking budget). Help text and error messages updated.
-- ~~**`-n` / `--name` session flag**~~: **DONE** — `chet -n "my task"` sets session label at startup, overrides auto-label. Works with `--resume` too.
-- ~~**`/plan` with description**~~: **DONE** — `/plan fix the auth bug` enters plan mode and immediately sends the description as a message. Already in plan mode? Just sends the message.
-- ~~**Memory file timestamps**~~: **DONE** — Memory section headings include "(last updated: YYYY-MM-DD HH:MM UTC)" from file mtime. Model can reason about freshness.
-- ~~**`PostCompact` hook event**~~: **DONE** — `post_compact` hook fires after `/compact` with `messages_removed` and `messages_remaining` in the JSON payload.
-- ~~**`/context` actionable suggestions**~~: **DONE** — `/context` now suggests `/compact` at >50%/>80% usage and warns about large system prompts (>20% of context window) with `/memory reset` hint.
-- ~~**Parallel tool failure isolation**~~: **DONE** — Read-only tools (Read, Glob, Grep, MemoryRead) now execute in parallel via `join_all`. Mutating tools run sequentially after. Failures produce per-tool error results without affecting siblings. Permission checks and hooks remain sequential (may prompt user).
-- ~~**Strip progress messages during compaction**~~: **DONE** — Recent messages preserved after compaction now have large ToolResult text truncated (>4000 chars) and Thinking blocks removed. Prevents context bloat from file reads, grep outputs, and bash outputs surviving compaction. 4 new tests.
-- ~~**Background bash output kill limit**~~: **DONE** — Bash tool now spawns child with piped stdout/stderr, reads via `bounded_read` (cap per stream), and kills the process if total output exceeds 5GB. Prevents runaway processes from exhausting memory.
-- ~~**Session auto-naming from plan content**~~: **DONE** — When user approves a plan, the first heading (or first line) of the plan text becomes the session label (if not already named). `label_from_plan()` strips `#` prefixes, truncates to 60 chars. 4 new tests.
-- **MCP elicitation**: MCP servers can request structured input mid-task via interactive dialog (form fields). New JSON-RPC protocol extension.
-- ~~**`allowRead` sandbox setting**~~: **DONE** — Permission evaluation now uses specificity: rules with args (e.g. `file_path:/src/*`) take precedence over rules without. A `permit` with `file_path:/src/*` overrides a broader `block` on `Read`. 3 new tests.
-- ~~**`ExitWorktree` tool**~~: **DONE** — `/worktree exit` slash command restores CWD to original repo when in `--worktree` mode. `Agent::set_cwd()` method added. Git worktree cleaned up on process exit as before.
-- ~~**Auto-compaction circuit breaker**~~: **DONE** — Auto-compaction triggers when context usage exceeds 80%. Circuit breaker disables auto-compact after 3 consecutive failures (manual `/compact` still works). Failure counter resets on success.
-- ~~**`autoMemoryDirectory` setting**~~: **DONE** — `memory_dir` in config.toml overrides default `~/.chet/memory/`. Resolved in `ChetConfig`, flows through `MemoryManager` and both memory tools.
-- ~~**Token estimation audit**~~: **DONE** — Thinking blocks excluded (not in input context). Text uses chars/3.5 (was chars/4). JSON/tool inputs use chars/5. ToolUse/ToolResult add fixed overhead for IDs. 4 new tests.
-- ~~**`StopFailure` hook event**~~: **DONE** — `stop_failure` hook fires on API errors (stream error or network failure) with error message in `tool_output` field. Best-effort, log-only.
-- ~~**MCP deny rule enforcement**~~: **DONE** — `is_tool_blocked()` on PermissionEngine checks static block rules. Tool definitions filtered via `defs.retain()` before sending to API — model never sees blocked tools. 2 new tests.
-- ~~**Worktree hooks/config loading**~~: **DONE** — `load_with_project_dir()` loads `.chet/config.toml` from the project directory and merges hooks + permission rules with global config. Called with CWD on startup.
-- ~~**Custom model option**~~: **DONE** — `[models]` config section for aliases (e.g. `fast = "claude-haiku-4-5-20251001"`). Aliases resolved during config load. 2 new tests.
-- ~~**Agent frontmatter**~~: **DONE** — `[agents.<name>]` config section with `effort`, `max_turns`, `disallowed_tools`, `system_prompt` fields. `AgentConfig` struct in chet-config. 2 new tests.
-- **VCS directory exclusions**: Add `.jj` (Jujutsu) and `.sl` (Sapling) to Grep/Glob exclusion lists alongside `.git`.
-- **MCP tool description cap**: Cap MCP tool descriptions at 2KB to prevent OpenAPI-generated servers from bloating context window.
-- **Token count formatting**: Display >=1M tokens as "1.5m" instead of "1512.6k" in status line and `/context`.
-- **Tool result file cleanup**: Clean up `.chet-tool-output/` files after configurable period (`cleanup_period_days`). Persistence exists but no housekeeping.
-- **Session ID header**: Add `X-Chet-Session-Id` header to API requests for proxy aggregation and debugging.
-- **Stream idle timeout**: Configurable watchdog for hanging SSE streams (default 90s). Kill and surface error instead of hanging indefinitely.
-- **Conditional hook `if` field**: Filter hooks by tool pattern (e.g., `Bash(git *)`). Uses permission rule syntax. Reduces unnecessary process spawning.
-- **Read tool dedup unchanged re-reads**: Track recently-read file content hashes, skip re-sending unchanged files to reduce token usage.
-- **`--bare` flag**: Minimal startup for scripted/CI `-p` calls — skip hooks, memory, MCP, plugin sync. Faster cold start.
-- **Idle-return prompt**: Suggest `/clear` or `/compact` after 75+ minutes idle to avoid stale context and token waste. Hint should show *current* context size, not cumulative session tokens.
-- **Background bash stuck notification**: Surface notification when bash appears stuck on an interactive prompt (~45s timeout).
-- **Rate limit display in status line**: Show API rate limit usage percentages and reset time.
-- **`CwdChanged`/`FileChanged` hook events**: Reactive hooks for environment management (e.g., direnv-style auto-reload).
-- **`PermissionDenied` hook**: Fire hook after permission denials. Return `{retry: true}` to let model retry.
-- **Transcript search**: Search through conversation history (`/` in transcript mode, `n`/`N` to step through matches).
-- **Worktree resume restoration**: `--resume` on a session that was in a worktree should restore that worktree automatically.
-- **SSE large frame performance audit**: Audit SSE parser for quadratic behavior on large streamed frames (CC v2.1.90 found and fixed this).
-- **MCP result size override**: Allow MCP servers to specify max result size via `_meta["maxResultSizeChars"]` annotation (up to 500K), preventing truncation of large but valuable results like DB schemas.
-- **`--resume` filter print-mode sessions**: Don't show `-p` (print mode) sessions in the resume picker. They're one-shot and not useful to resume interactively.
-- **Protected directory list**: Add `.husky`, `.github/workflows`, and other CI/config dirs to directories requiring explicit write permission.
-- **Hook `defer` permission decision**: PreToolUse hooks can return `"defer"` to pause execution. Headless sessions resume with `-p --resume` for later re-evaluation. CI/CD pattern.
-- **MCP connection non-blocking in print mode**: Skip MCP server connection wait in `-p` mode, bound connection time at 5s instead of blocking on slowest server.
-- **Edit without prior Read**: Allow Edit on files the model has seen via Bash output (cat, sed -n), not just via the Read tool.
-- **Hook output disk persistence**: Hook output >50K chars saved to disk with file path + preview instead of injecting directly into context.
-- **Bash stale-edit warning**: Warn when a formatter/linter modifies previously-read files, preventing stale-edit errors on subsequent Edit calls.
-- **Format-on-save hook conflict**: Handle PostToolUse hooks that rewrite files between consecutive Edit/Write calls (e.g., rustfmt). Detect changed content and re-read before next edit.
-- **Per-model `/cost` breakdown**: Show `/cost` broken down by model with cache-hit stats (cache_creation / cache_read / cache_miss tokens). Current implementation shows totals only.
-- **Prompt cache expiry warning**: When resuming a session after the prompt cache has likely expired (~5 min TTL), show a hint about how many tokens the next turn will send uncached. Helps users understand cost surprises.
-- **Tool input JSON-encoded field audit**: Audit tool input parsing for array/object fields arriving as JSON-encoded strings during streaming (CC v2.1.92 fix). May affect our streaming tool input handling.
-- **Empty thinking text block audit**: Audit extended thinking handling for whitespace-only text blocks appearing alongside real content. Can trigger API 400s on next turn.
-- **Session title via hook**: `UserPromptSubmit` hook (or similar) can return `sessionTitle` in `hookSpecificOutput` JSON to set/override the session label. Integrates with auto-label system.
-- **Long Retry-After visibility**: When server returns a long `Retry-After` header, surface it immediately with a countdown or error instead of silently waiting. Prevents apparent hang on long backoff periods.
-- **`--resume` across worktrees of same repo**: Resume sessions from other worktrees of the same underlying repo directly, not just the current worktree/cwd. Currently `--resume` is bound to the current directory context.
-- **Print mode partial response preservation**: If `chet -p` is interrupted mid-stream (Ctrl+C, SIGHUP), preserve whatever assistant text has arrived so far in output/session history instead of discarding the partial response.
-- **UTF-8 chunk boundary audit**: Audit SSE parser for multi-byte UTF-8 sequences split across HTTP chunk boundaries. Confirm we buffer raw bytes and don't decode to string before splitting on `\n\n`.
+### Completed (56 items)
 
-### Bash Permission Hardening (from CC v2.1.97–v2.1.98 fixes)
+<details>
+<summary>All completed Post-v1 items (click to expand)</summary>
 
-- **Read-only glob auto-allow**: `ls *.ts`, `cat src/*.rs` shouldn't prompt. Expand read-only detection to handle glob patterns in argument lists.
-- **`cd <cwd> &&` prefix auto-allow**: Compound bash commands starting with `cd` into the current project directory shouldn't prompt. Common model pattern — always prompting is noise.
-- **Wildcard rule whitespace normalization**: `Bash(git commit *)` rules currently fail to match commands with extra spaces or tabs. Normalize whitespace before matching.
-- **Piped compound command denies**: `Bash(...)` deny rules get downgraded to prompt for piped commands that mix `cd` with other segments. Deny must win across all subcommands.
-- **False prompts for `/` in argument values**: `cut -d /`, `paste -d /`, `column -s /`, `awk '{print $1}' file`, filenames with `%`. Argument parsing treats these as path-like when they're delimiters/format specifiers.
-- **Backslash-escaped flag security audit**: CC had a bypass where `\-rm` could auto-allow as read-only then execute destructively. Audit our bash parser for equivalent escape handling.
-- **Env-var prefix allowlist**: `FOO=bar cmd` should only auto-allow when `FOO` is a known-safe var (`LANG`, `TZ`, `NO_COLOR`, `LC_*`, etc.). Arbitrary env vars can change command behavior.
-- **`/dev/tcp/...` and `/dev/udp/...` redirect audit**: Bash pseudo-device redirects enable network I/O. Must prompt, never auto-allow.
-- **`grep -f FILE` / `rg -f FILE` pattern file access**: External pattern file is read — must check Read permission against that file's path.
+- ~~**Worktree isolation**~~, ~~**Non-interactive mode optimization**~~, ~~**ConfigChange hook event**~~, ~~**File-not-found path suggestions**~~, ~~**Enhanced permission restriction reasons**~~, ~~**Status line**~~, ~~**Memory management**~~, ~~**`chet agents` CLI command**~~, ~~**MCP reconnect resilience**~~, ~~**Session flush on disconnect**~~, ~~**Auto-memory**~~, ~~**Smarter bash permission prefixes**~~, ~~**Config file corruption prevention**~~, ~~**Tool result disk persistence**~~, ~~**`/copy` command**~~, ~~**`/model` human-readable labels**~~, ~~**HTTP hooks**~~, ~~**Effort levels**~~, ~~**Agent name in terminal title**~~, ~~**`InstructionsLoaded` hook event**~~, ~~**Concise subagent reports**~~, ~~**`/resume` shows most recent prompt**~~, ~~**Skip compaction preamble recap**~~, ~~**Compaction preserves images for cache reuse**~~, ~~**Skip skill re-injection on `/resume`**~~ (N/A), ~~**MCP binary content to disk**~~, ~~**Increased output token limits**~~, ~~**`/effort auto`**~~, ~~**`-n` / `--name` session flag**~~, ~~**`/plan` with description**~~, ~~**Memory file timestamps**~~, ~~**`PostCompact` hook event**~~, ~~**`/context` actionable suggestions**~~, ~~**Parallel tool failure isolation**~~, ~~**Strip progress messages during compaction**~~, ~~**Background bash output kill limit**~~, ~~**Session auto-naming from plan content**~~, ~~**`allowRead` sandbox setting**~~, ~~**`ExitWorktree` tool**~~, ~~**Auto-compaction circuit breaker**~~, ~~**`autoMemoryDirectory` setting**~~, ~~**Token estimation audit**~~, ~~**`StopFailure` hook event**~~, ~~**MCP deny rule enforcement**~~, ~~**Worktree hooks/config loading**~~, ~~**Custom model option**~~, ~~**Agent frontmatter**~~, ~~**MCP elicitation**~~ (N/A — no servers use it), ~~**`--resume` filter print-mode sessions**~~ (deferred), and more.
 
-### API / Retry / Streaming (from CC v2.1.97–v2.1.108 fixes)
+</details>
 
-- **`ENABLE_PROMPT_CACHING_1H` env var**: Opt into 1-hour prompt cache TTL (default is 5 min). Add to cache control headers on system prompt + last tool definition.
-- **Stream 5-min stall abort + non-streaming retry**: Extends existing stream idle timeout roadmap item. After 5 min with no data, abort the SSE stream and retry as non-streaming request.
-- **429 exponential backoff minimum**: Even when `Retry-After` is small, enforce exponential backoff as a floor. Prevents burning all retry attempts in ~13s on aggressive rate-limit advice.
-- **Honor `API_TIMEOUT_MS`**: Audit for hardcoded request timeouts (CC had a 5-min cap). `API_TIMEOUT_MS` env var should govern all HTTP request timeouts, including for slow backends / extended thinking.
-- **Rich rate-limit error messages**: Show which limit was hit (server throttle vs plan usage) and when it resets, instead of an opaque seconds countdown.
-- **Network errors show retry immediately**: When connection fails, display "Retrying in Ns" immediately instead of a silent spinner until backoff expires.
+### Worth Doing — High Value, Reasonable Effort (15 items)
 
-### Hooks
+- **VCS directory exclusions**: Add `.jj` (Jujutsu) and `.sl` (Sapling) to Grep/Glob exclusion lists alongside `.git`. ~5 min.
+- **MCP tool description cap**: Cap MCP tool descriptions at 2KB to prevent OpenAPI-generated servers from bloating context window. ~10 min.
+- **Token count formatting**: Display >=1M tokens as "1.5m" instead of "1512.6k" in status line and `/context`. ~10 min.
+- **Tool result file cleanup**: Clean up `.chet-tool-output/` files after configurable period (`cleanup_period_days`). ~20 min.
+- **Stream idle timeout**: Configurable watchdog for hanging SSE streams (default 90s). Kill and surface error instead of hanging indefinitely. ~30 min.
+- **`--bare` flag**: Minimal startup for scripted/CI `-p` calls — skip hooks, memory, MCP, plugin sync. Faster cold start. ~20 min.
+- **`--resume` filter print-mode sessions**: Don't show `-p` (print mode) sessions in the resume picker. ~10 min.
+- **Edit without prior Read**: Allow Edit on files the model has seen via Bash output (cat, sed -n), not just via the Read tool. ~15 min.
+- **Read-only glob auto-allow**: `ls *.ts`, `cat src/*.rs` shouldn't prompt. Expand read-only detection. ~10 min.
+- **`cd <cwd> &&` prefix auto-allow**: Compound bash commands starting with `cd` into CWD shouldn't prompt. ~10 min.
+- **UTF-8 chunk boundary audit**: Audit SSE parser for multi-byte sequences split across HTTP chunks. ~20 min.
+- **xhigh effort level for Opus 4.7**: Add `xhigh` effort level (64K tokens). ~5 min.
+- **Plan file naming from prompt**: Name plan files after the user's prompt instead of session-id + timestamp. ~10 min.
+- **`ENABLE_PROMPT_CACHING_1H` env var**: Opt into 1-hour prompt cache TTL. ~10 min.
+- **MCP connection non-blocking in print mode**: Bound MCP connection wait at 5s in `-p` mode. ~15 min.
 
-- **`PreCompact` hook event**: Fire hook before compaction starts. Hook can block with exit code 2 or `{"decision":"block"}` JSON. Pairs with existing `PostCompact`.
-- **Hook errors include stderr first line**: When a hook fails, surface the first line of stderr in the transcript so users can self-diagnose without `--debug`.
-- **`PreToolUse` `additionalContext` preserved on tool failure**: When a tool call fails, don't drop `additionalContext` the hook provided. Currently gets discarded alongside the failed tool result.
+### Nice to Have — Moderate Value (20 items)
 
-### Subagent / Worktree
+- **Session ID header**: Add `X-Chet-Session-Id` to API requests for proxy aggregation.
+- **Conditional hook `if` field**: Filter hooks by tool pattern to reduce process spawning.
+- **Background bash stuck notification**: Detect interactive prompt hangs (~45s timeout).
+- **Protected directory list**: `.husky`, `.github/workflows` require explicit write permission.
+- **Bash stale-edit warning**: Warn when formatter modifies previously-read files.
+- **Per-model `/cost` breakdown**: Break down cost by model with cache-hit stats.
+- **Prompt cache expiry warning**: Warn about uncached tokens when resuming after TTL.
+- **Long Retry-After visibility**: Show countdown instead of silent wait on long backoffs.
+- **429 exponential backoff minimum**: Enforce exponential floor even with small Retry-After.
+- **Honor `API_TIMEOUT_MS`**: Env var for all HTTP request timeouts.
+- **Rich rate-limit error messages**: Show which limit and when it resets.
+- **Network errors show retry immediately**: Display "Retrying in Ns" instead of silent spinner.
+- **`PreCompact` hook event**: Fire before compaction starts (pairs with PostCompact).
+- **Hook errors include stderr first line**: Surface first stderr line for self-diagnosis.
+- **Read tool dedup unchanged re-reads**: Hash-based dedup to reduce token usage.
+- **Idle-return prompt**: Suggest `/clear` or `/compact` after 75+ min idle.
+- **SSE large frame performance audit**: Check for quadratic behavior on large frames.
+- **Worktree resume restoration**: `--resume` restores worktree automatically.
+- **Print mode partial response preservation**: Preserve partial output on Ctrl+C.
+- **Piped compound command denies**: Deny rules must win across all pipe subcommands.
 
-- **Subagent worktree isolation CWD leakage audit**: When a subagent runs with worktree isolation, its `cwd:` override or resolved worktree path should not leak back to the parent session's Bash tool context. CC had this bug; audit our impl.
-- **Subagent worktree Read/Edit access**: Subagents in isolated worktrees should always have Read/Edit access to files inside their own worktree directory, regardless of parent permission config.
-- **Stale worktree cleanup for squash-merged PRs**: Current cleanup keeps worktrees indefinitely for subagent PRs that were squash-merged. Detect squash-merged branches (no shared tip with main but logically merged) and clean up.
+### Skip / Extremely Niche (39 items)
 
-### Terminal / UX
-
-- **Interactive `/effort` slider**: When `/effort` is called without args, open an interactive picker. Arrow keys navigate low/medium/high/xhigh/auto, Enter to confirm.
-- **`--resume` defaults to current directory**: Resume picker shows only current-directory sessions by default; Ctrl+A reveals all projects. Reduces noise for users with many repos.
-- **CLI near-miss typo suggestions**: `chet udpate` → "Did you mean `chet update`?". Use Levenshtein or similar for subcommand suggestion.
-- **Markdown blockquote continuous left bar**: Renderer currently breaks the left bar on wrapped lines. Maintain it across wraps for readability.
-- **`Ctrl+U` clears entire input**: Change from "delete to start of line" to "clear entire input buffer" (readline convention shift, matches CC).
-- **Cedar policy syntax highlighting**: Add `.cedar` / `.cedarpolicy` syntax to syntect bundled grammars.
-- **`/model` cache miss warning**: Warn before switching models mid-conversation — the next response re-reads the full history uncached. Large cost surprise otherwise.
-
-### Memory / Performance
-
-- **On-demand syntect grammar loading**: `CodeHighlighter` currently loads all grammars at init. Load per-language grammars on first use instead. Reduces startup memory.
-- **xhigh effort level for Opus 4.7**: Add `xhigh` level between `high` and `max`. Available on Opus 4.7+; other models fall back to `high`. Extend `--effort`, `/effort`, and status line display.
-
-### Other
-
-- **OS CA certificate store trust**: For enterprise TLS proxies (corporate MITM with private root CAs). Add `rustls-native-certs` behind a feature flag or default-on with `CHET_CERT_STORE=bundled` opt-out.
-- **OpenTelemetry tracing support**: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_LOG_TOOL_DETAILS`, `OTEL_LOG_TOOL_CONTENT`, `OTEL_LOG_USER_PROMPTS` env var gating. Emit spans for agent turns, tool calls, API requests. Propagate `TRACEPARENT`/`TRACESTATE` into Bash tool subprocesses for distributed trace linking.
-- **`refreshInterval` status line config**: Re-run the status line command every N seconds, not just on state change. Enables live external data in status (git branch, tmux pane, etc).
-- **Plan file naming from prompt**: Name plan files after the user's prompt (e.g. `fix-auth-race-snug-otter.md`) instead of short-session-id + timestamp. More scannable `~/.chet/plans/` listing.
+- **LSP Client**: Deferred by design (heavyweight, 1-2GB RAM, low demand).
+- **MCP elicitation**: Complex JSON-RPC extension, no servers use it.
+- **Rate limit display in status line**: Requires API info we don't have.
+- **`CwdChanged`/`FileChanged` hook events**: Over-engineering.
+- **`PermissionDenied` hook**: Edge case.
+- **Transcript search**: Major UI feature, not CLI-critical.
+- **MCP result size override**: Niche MCP extension.
+- **Hook `defer` permission decision**: Complex CI/CD pattern.
+- **Hook output disk persistence**: Niche.
+- **Format-on-save hook conflict**: Very niche.
+- **Tool input JSON-encoded field audit**: No known bug.
+- **Empty thinking text block audit**: No known bug.
+- **Session title via hook**: Niche.
+- **`--resume` across worktrees**: Complex, niche.
+- **False prompts for `/` in argument values**: Edge case in arg parsing.
+- **Backslash-escaped flag security audit**: Security edge case.
+- **Env-var prefix allowlist**: Niche security hardening.
+- **`/dev/tcp` and `/dev/udp` redirect audit**: Very niche bash security.
+- **`grep -f FILE` pattern file access**: Very niche.
+- **Stream 5-min stall abort + non-streaming retry**: Complex, rare scenario.
+- **`PreToolUse` additionalContext preservation**: Niche hook pattern.
+- **Subagent CWD leakage audit**: Audit, no known bug.
+- **Subagent worktree Read/Edit access**: Complex edge case.
+- **Stale worktree cleanup for squash-merged PRs**: Niche git workflow.
+- **Interactive `/effort` slider**: Over-engineering `/effort`.
+- **`--resume` defaults to current directory**: Breaking change risk.
+- **CLI near-miss typo suggestions**: Nice but complex (Levenshtein).
+- **Markdown blockquote continuous left bar**: Visual polish.
+- **`Ctrl+U` clears entire input**: Minor readline convention.
+- **Cedar policy syntax highlighting**: Way over-engineering.
+- **`/model` cache miss warning**: Niche.
+- **On-demand syntect grammar loading**: Memory optimization, marginal.
+- **OS CA certificate store trust**: Platform-specific, reqwest handles most cases.
+- **OpenTelemetry tracing support**: Enterprise feature.
+- **`refreshInterval` status line config**: Config knob, low demand.
+- **Wildcard rule whitespace normalization**: Edge case.
+- **Wildcard rule whitespace normalization**: Edge case in rule matching.
+- **`--resume` across worktrees of same repo**: Complex, niche.
+- **Long Retry-After visibility**: Already partially handled by retry display.
 
 ## Coding Standards
 
