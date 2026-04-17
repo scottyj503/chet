@@ -14,6 +14,7 @@ members = [
     "crates/chet-lsp",
     "crates/chet-sandbox",
     "crates/chet-types",
+    "crates/chet-bedrock",
 ]
 
 [workspace.package]
@@ -67,6 +68,7 @@ chet-mcp = { path = "crates/chet-mcp", version = "0.2.0" }
 chet-plugins = { path = "crates/chet-plugins", version = "0.2.0" }
 chet-lsp = { path = "crates/chet-lsp", version = "0.2.0" }
 chet-sandbox = { path = "crates/chet-sandbox", version = "0.2.0" }
+chet-bedrock = { path = "crates/chet-bedrock", version = "0.2.0" }
 
 [profile.release]
 lto = true
