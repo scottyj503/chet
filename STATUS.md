@@ -22,6 +22,56 @@
 | 8 | MCP Integration | **COMPLETE** | JSON-RPC 2.0 over stdio, multi-server, tool namespacing, /mcp command |
 | 9 | Polish & Distribution | **COMPLETE** | Unicode-safe truncation, CWD fallback, O(n²) fix, auto-labels, descriptive permissions |
 | 10 | Distribution | **COMPLETE** | Static binaries, Docker, install script, GitHub Action, crates.io |
+| 11 | Third-Party Providers | **PLANNED** | AWS Bedrock (11a), Vertex AI (11b), CC-compatible env var layer (11c). Feature-flagged to keep default binary small. |
+
+### Phase 11 Plan
+
+Add AWS Bedrock and Google Vertex AI support, building on the existing `Provider` trait (Phase 7.5). Feature-flagged (`bedrock`, `vertex`) so non-cloud users pay zero cost.
+
+**11a: Bedrock Provider** — `chet-bedrock` crate implementing `Provider`
+- Auth: `aws-config` + `aws-credential-types` + `aws-sigv4` crates (pure Rust, ~15–20 transitive deps). Handles the full AWS credential chain: env vars, `AWS_PROFILE`, SSO, assumed roles (`source_profile` + STS), IMDS. Required because real-world profiles like `claude-pr-reviewer` are typically assumed-role chains.
+- HTTP: reuse `reqwest` + our SSE infrastructure. Bedrock endpoint: `https://bedrock-runtime.<region>.amazonaws.com/model/<model-id>/invoke-with-response-stream`
+- Wire format: AWS EventStream frame parser (~100-150 LOC) → unwraps `chunk` events → payloads are standard Anthropic `StreamEvent` JSON (same format used by `chet-api` today). Reference: `aws-smithy-eventstream` crate if helpful.
+- Error mapping: `ThrottlingException` → `ApiError::RateLimited`, `ServiceQuotaExceededException` → `Overloaded`, etc. Retry/backoff works unchanged.
+- Credential refresh: hold `aws-config` provider across requests, re-resolve per request (cheap, cached internally). Don't snapshot creds at startup.
+- Config: `[providers.bedrock]` in `config.toml` with `region` (optional — defaults to `AWS_REGION` env). No direct credential fields; rely on AWS SDK chain.
+
+**11b: Vertex AI Provider** — `chet-vertex` crate, follow-on
+- Auth: GCP ADC (Application Default Credentials) via `gcp_auth` crate or similar
+- Endpoint: `https://<region>-aiplatform.googleapis.com/v1/projects/<project>/locations/<region>/publishers/anthropic/models/<model>:streamRawPredict`
+- Wire format: SSE (same as Anthropic direct), with a thin GCP request envelope
+- Config: `[providers.vertex]` with `project_id`, `region`, optional credential path
+
+**11c: CC-compatible env var layer** — shared infrastructure
+- Provider selection: honor `CLAUDE_CODE_USE_BEDROCK=1` / `CLAUDE_CODE_USE_VERTEX=1` alongside our native `CHET_USE_BEDROCK=1` and `--provider bedrock` CLI flag
+- Model alias resolution priority: CLI `--model` → `ANTHROPIC_MODEL` env → `[models]` config → hard default
+- Alias env vars: `ANTHROPIC_DEFAULT_SONNET_MODEL`, `_HAIKU_MODEL`, `_OPUS_MODEL` override short names (`sonnet` / `haiku` / `opus`) when resolving. Means `chet --model sonnet` transparently resolves to a Bedrock inference profile ID when these vars are set.
+- Drop-in compatibility: a user whose shell already exports the CC Bedrock vars should be able to run `chet` with zero additional config.
+
+### Phase 11 Checklist
+
+- [ ] `chet-bedrock` crate scaffold + `bedrock` feature flag on `chet` binary
+- [ ] `aws-config` credential resolution + `AWS_REGION`/`AWS_PROFILE` honor
+- [ ] SigV4 request signing via `aws-sigv4` (wraps `reqwest::Request`)
+- [ ] AWS EventStream frame parser (prelude + headers + payload + CRC32)
+- [ ] `BedrockProvider` implementing `Provider` trait
+- [ ] Bedrock error → `ApiError` mapping (throttling, quota, auth)
+- [ ] Provider selection logic in `main.rs` (`CLAUDE_CODE_USE_BEDROCK`, `CHET_USE_BEDROCK`, `--provider`)
+- [ ] Model alias resolver honoring `ANTHROPIC_MODEL` + `ANTHROPIC_DEFAULT_{SONNET,HAIKU,OPUS}_MODEL`
+- [ ] Integration test: mock Bedrock endpoint + canned EventStream responses
+- [ ] Docs: `docs/providers.md` covering Bedrock auth modes, env var priority, model ID formats
+- [ ] CI: feature-flag build matrix (default, `--features bedrock`)
+- [ ] (11b) `chet-vertex` crate + Vertex provider
+- [ ] (11b) Vertex integration test
+- [ ] (11c) `/provider` slash command for runtime provider inspection
+- [ ] Interactive `chet setup-bedrock` / `chet setup-vertex` wizards — guide user through credentials, region, project, and model pinning. Seed from existing pins on re-run. Offer "with 1M context" option for supported models. (CC v2.1.98, v2.1.111)
+
+### Phase 11 Gotchas (learned from Claude Code fixes)
+
+- **Don't set `Authorization` header when using SigV4** — `ANTHROPIC_AUTH_TOKEN`, `apiKeyHelper`, `ANTHROPIC_CUSTOM_HEADERS` setting Authorization will break SigV4 signing with 403. Strip these on Bedrock requests. (CC v2.1.101)
+- **Empty `AWS_BEARER_TOKEN_BEDROCK` = not set** — GitHub Actions exports empty strings for unset inputs. Treat empty-string env vars as absent before deciding bearer vs SigV4 auth. (CC v2.1.97)
+- **Model picker for non-US Bedrock regions** — Don't persist `us.*` inference profile IDs to config when the user is in a non-US region. Wait for inference profile discovery to complete before writing. (CC v2.1.105)
+- **Rate limits don't reference status.claude.com on Bedrock/Vertex** — That page only covers Anthropic-operated providers. Use cloud-provider-specific status links or omit. (CC v2.1.111)
 
 ### Phase 9 Checklist
 
@@ -178,7 +228,7 @@ Bugs found and fixed:
 - **Conditional hook `if` field**: Filter hooks by tool pattern (e.g., `Bash(git *)`). Uses permission rule syntax. Reduces unnecessary process spawning.
 - **Read tool dedup unchanged re-reads**: Track recently-read file content hashes, skip re-sending unchanged files to reduce token usage.
 - **`--bare` flag**: Minimal startup for scripted/CI `-p` calls — skip hooks, memory, MCP, plugin sync. Faster cold start.
-- **Idle-return prompt**: Suggest `/clear` or `/compact` after 75+ minutes idle to avoid stale context and token waste.
+- **Idle-return prompt**: Suggest `/clear` or `/compact` after 75+ minutes idle to avoid stale context and token waste. Hint should show *current* context size, not cumulative session tokens.
 - **Background bash stuck notification**: Surface notification when bash appears stuck on an interactive prompt (~45s timeout).
 - **Rate limit display in status line**: Show API rate limit usage percentages and reset time.
 - **`CwdChanged`/`FileChanged` hook events**: Reactive hooks for environment management (e.g., direnv-style auto-reload).
@@ -195,6 +245,70 @@ Bugs found and fixed:
 - **Hook output disk persistence**: Hook output >50K chars saved to disk with file path + preview instead of injecting directly into context.
 - **Bash stale-edit warning**: Warn when a formatter/linter modifies previously-read files, preventing stale-edit errors on subsequent Edit calls.
 - **Format-on-save hook conflict**: Handle PostToolUse hooks that rewrite files between consecutive Edit/Write calls (e.g., rustfmt). Detect changed content and re-read before next edit.
+- **Per-model `/cost` breakdown**: Show `/cost` broken down by model with cache-hit stats (cache_creation / cache_read / cache_miss tokens). Current implementation shows totals only.
+- **Prompt cache expiry warning**: When resuming a session after the prompt cache has likely expired (~5 min TTL), show a hint about how many tokens the next turn will send uncached. Helps users understand cost surprises.
+- **Tool input JSON-encoded field audit**: Audit tool input parsing for array/object fields arriving as JSON-encoded strings during streaming (CC v2.1.92 fix). May affect our streaming tool input handling.
+- **Empty thinking text block audit**: Audit extended thinking handling for whitespace-only text blocks appearing alongside real content. Can trigger API 400s on next turn.
+- **Session title via hook**: `UserPromptSubmit` hook (or similar) can return `sessionTitle` in `hookSpecificOutput` JSON to set/override the session label. Integrates with auto-label system.
+- **Long Retry-After visibility**: When server returns a long `Retry-After` header, surface it immediately with a countdown or error instead of silently waiting. Prevents apparent hang on long backoff periods.
+- **`--resume` across worktrees of same repo**: Resume sessions from other worktrees of the same underlying repo directly, not just the current worktree/cwd. Currently `--resume` is bound to the current directory context.
+- **Print mode partial response preservation**: If `chet -p` is interrupted mid-stream (Ctrl+C, SIGHUP), preserve whatever assistant text has arrived so far in output/session history instead of discarding the partial response.
+- **UTF-8 chunk boundary audit**: Audit SSE parser for multi-byte UTF-8 sequences split across HTTP chunk boundaries. Confirm we buffer raw bytes and don't decode to string before splitting on `\n\n`.
+
+### Bash Permission Hardening (from CC v2.1.97–v2.1.98 fixes)
+
+- **Read-only glob auto-allow**: `ls *.ts`, `cat src/*.rs` shouldn't prompt. Expand read-only detection to handle glob patterns in argument lists.
+- **`cd <cwd> &&` prefix auto-allow**: Compound bash commands starting with `cd` into the current project directory shouldn't prompt. Common model pattern — always prompting is noise.
+- **Wildcard rule whitespace normalization**: `Bash(git commit *)` rules currently fail to match commands with extra spaces or tabs. Normalize whitespace before matching.
+- **Piped compound command denies**: `Bash(...)` deny rules get downgraded to prompt for piped commands that mix `cd` with other segments. Deny must win across all subcommands.
+- **False prompts for `/` in argument values**: `cut -d /`, `paste -d /`, `column -s /`, `awk '{print $1}' file`, filenames with `%`. Argument parsing treats these as path-like when they're delimiters/format specifiers.
+- **Backslash-escaped flag security audit**: CC had a bypass where `\-rm` could auto-allow as read-only then execute destructively. Audit our bash parser for equivalent escape handling.
+- **Env-var prefix allowlist**: `FOO=bar cmd` should only auto-allow when `FOO` is a known-safe var (`LANG`, `TZ`, `NO_COLOR`, `LC_*`, etc.). Arbitrary env vars can change command behavior.
+- **`/dev/tcp/...` and `/dev/udp/...` redirect audit**: Bash pseudo-device redirects enable network I/O. Must prompt, never auto-allow.
+- **`grep -f FILE` / `rg -f FILE` pattern file access**: External pattern file is read — must check Read permission against that file's path.
+
+### API / Retry / Streaming (from CC v2.1.97–v2.1.108 fixes)
+
+- **`ENABLE_PROMPT_CACHING_1H` env var**: Opt into 1-hour prompt cache TTL (default is 5 min). Add to cache control headers on system prompt + last tool definition.
+- **Stream 5-min stall abort + non-streaming retry**: Extends existing stream idle timeout roadmap item. After 5 min with no data, abort the SSE stream and retry as non-streaming request.
+- **429 exponential backoff minimum**: Even when `Retry-After` is small, enforce exponential backoff as a floor. Prevents burning all retry attempts in ~13s on aggressive rate-limit advice.
+- **Honor `API_TIMEOUT_MS`**: Audit for hardcoded request timeouts (CC had a 5-min cap). `API_TIMEOUT_MS` env var should govern all HTTP request timeouts, including for slow backends / extended thinking.
+- **Rich rate-limit error messages**: Show which limit was hit (server throttle vs plan usage) and when it resets, instead of an opaque seconds countdown.
+- **Network errors show retry immediately**: When connection fails, display "Retrying in Ns" immediately instead of a silent spinner until backoff expires.
+
+### Hooks
+
+- **`PreCompact` hook event**: Fire hook before compaction starts. Hook can block with exit code 2 or `{"decision":"block"}` JSON. Pairs with existing `PostCompact`.
+- **Hook errors include stderr first line**: When a hook fails, surface the first line of stderr in the transcript so users can self-diagnose without `--debug`.
+- **`PreToolUse` `additionalContext` preserved on tool failure**: When a tool call fails, don't drop `additionalContext` the hook provided. Currently gets discarded alongside the failed tool result.
+
+### Subagent / Worktree
+
+- **Subagent worktree isolation CWD leakage audit**: When a subagent runs with worktree isolation, its `cwd:` override or resolved worktree path should not leak back to the parent session's Bash tool context. CC had this bug; audit our impl.
+- **Subagent worktree Read/Edit access**: Subagents in isolated worktrees should always have Read/Edit access to files inside their own worktree directory, regardless of parent permission config.
+- **Stale worktree cleanup for squash-merged PRs**: Current cleanup keeps worktrees indefinitely for subagent PRs that were squash-merged. Detect squash-merged branches (no shared tip with main but logically merged) and clean up.
+
+### Terminal / UX
+
+- **Interactive `/effort` slider**: When `/effort` is called without args, open an interactive picker. Arrow keys navigate low/medium/high/xhigh/auto, Enter to confirm.
+- **`--resume` defaults to current directory**: Resume picker shows only current-directory sessions by default; Ctrl+A reveals all projects. Reduces noise for users with many repos.
+- **CLI near-miss typo suggestions**: `chet udpate` → "Did you mean `chet update`?". Use Levenshtein or similar for subcommand suggestion.
+- **Markdown blockquote continuous left bar**: Renderer currently breaks the left bar on wrapped lines. Maintain it across wraps for readability.
+- **`Ctrl+U` clears entire input**: Change from "delete to start of line" to "clear entire input buffer" (readline convention shift, matches CC).
+- **Cedar policy syntax highlighting**: Add `.cedar` / `.cedarpolicy` syntax to syntect bundled grammars.
+- **`/model` cache miss warning**: Warn before switching models mid-conversation — the next response re-reads the full history uncached. Large cost surprise otherwise.
+
+### Memory / Performance
+
+- **On-demand syntect grammar loading**: `CodeHighlighter` currently loads all grammars at init. Load per-language grammars on first use instead. Reduces startup memory.
+- **xhigh effort level for Opus 4.7**: Add `xhigh` level between `high` and `max`. Available on Opus 4.7+; other models fall back to `high`. Extend `--effort`, `/effort`, and status line display.
+
+### Other
+
+- **OS CA certificate store trust**: For enterprise TLS proxies (corporate MITM with private root CAs). Add `rustls-native-certs` behind a feature flag or default-on with `CHET_CERT_STORE=bundled` opt-out.
+- **OpenTelemetry tracing support**: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_LOG_TOOL_DETAILS`, `OTEL_LOG_TOOL_CONTENT`, `OTEL_LOG_USER_PROMPTS` env var gating. Emit spans for agent turns, tool calls, API requests. Propagate `TRACEPARENT`/`TRACESTATE` into Bash tool subprocesses for distributed trace linking.
+- **`refreshInterval` status line config**: Re-run the status line command every N seconds, not just on state change. Enables live external data in status (git branch, tmux pane, etc).
+- **Plan file naming from prompt**: Name plan files after the user's prompt (e.g. `fix-auth-race-snug-otter.md`) instead of short-session-id + timestamp. More scannable `~/.chet/plans/` listing.
 
 ## Coding Standards
 
@@ -239,3 +353,5 @@ When a file exceeds the limit, split by single responsibility into submodules. R
 | 2026-02-19 | Defer LSP Client to post-v1 | Grep/Read cover 90% of needs; LSP is heavyweight and hurts CI/CD story; revisit if users request |
 | 2026-02-19 | Custom floor_char_boundary | MSRV 1.85 vs floor_char_boundary stable 1.91; manual impl using is_char_boundary |
 | 2026-02-19 | O(n²) fix: std::mem::take | Move messages into request, restore after API call — O(1) vs clone's O(n) per iteration |
+| 2026-04-08 | Phase 11: Bedrock/Vertex providers feature-flagged | `aws-config` + `aws-sigv4` (not full `aws-sdk-bedrockruntime`) for mid-weight deps. Feature flags keep default binary small; CI/CD users unaffected |
+| 2026-04-08 | Honor CC env vars (`CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_*_MODEL`) | Drop-in compatibility with existing CC user setups. Aliases `sonnet`/`haiku`/`opus` resolve via env vars when set, else `[models]` config, else hard default |
