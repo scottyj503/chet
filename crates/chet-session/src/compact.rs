@@ -98,16 +98,13 @@ fn extract_key_facts(messages: &[Message]) -> Vec<String> {
 
                     // Extract file paths from common tools
                     if let Some(path) = input.get("file_path").and_then(|v| v.as_str()) {
+                        let path_str = path.to_string();
                         match name.as_str() {
-                            "Read" | "Glob" | "Grep" => {
-                                if !files_read.contains(&path.to_string()) {
-                                    files_read.push(path.to_string());
-                                }
+                            "Read" | "Glob" | "Grep" if !files_read.contains(&path_str) => {
+                                files_read.push(path_str);
                             }
-                            "Write" | "Edit" => {
-                                if !files_written.contains(&path.to_string()) {
-                                    files_written.push(path.to_string());
-                                }
+                            "Write" | "Edit" if !files_written.contains(&path_str) => {
+                                files_written.push(path_str);
                             }
                             _ => {}
                         }
