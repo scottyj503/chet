@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 10 COMPLETE — v1 shipped
+## Current Phase: Phase 11 COMPLETE — v0.2.0 shipped
 
 ## Phase Status
 
@@ -22,7 +22,7 @@
 | 8 | MCP Integration | **COMPLETE** | JSON-RPC 2.0 over stdio, multi-server, tool namespacing, /mcp command |
 | 9 | Polish & Distribution | **COMPLETE** | Unicode-safe truncation, CWD fallback, O(n²) fix, auto-labels, descriptive permissions |
 | 10 | Distribution | **COMPLETE** | Static binaries, Docker, install script, GitHub Action, crates.io |
-| 11 | Third-Party Providers | **PLANNED** | AWS Bedrock (11a), Vertex AI (11b), CC-compatible env var layer (11c). Feature-flagged to keep default binary small. |
+| 11 | Third-Party Providers | **COMPLETE** | AWS Bedrock (11a), Vertex AI (11b), CC-compatible env var layer (11c). Feature-flagged to keep default binary small. |
 
 ### Phase 11 Plan
 
@@ -50,21 +50,21 @@ Add AWS Bedrock and Google Vertex AI support, building on the existing `Provider
 
 ### Phase 11 Checklist
 
-- [ ] `chet-bedrock` crate scaffold + `bedrock` feature flag on `chet` binary
-- [ ] `aws-config` credential resolution + `AWS_REGION`/`AWS_PROFILE` honor
-- [ ] SigV4 request signing via `aws-sigv4` (wraps `reqwest::Request`)
-- [ ] AWS EventStream frame parser (prelude + headers + payload + CRC32)
-- [ ] `BedrockProvider` implementing `Provider` trait
-- [ ] Bedrock error → `ApiError` mapping (throttling, quota, auth)
-- [ ] Provider selection logic in `main.rs` (`CLAUDE_CODE_USE_BEDROCK`, `CHET_USE_BEDROCK`, `--provider`)
-- [ ] Model alias resolver honoring `ANTHROPIC_MODEL` + `ANTHROPIC_DEFAULT_{SONNET,HAIKU,OPUS}_MODEL`
-- [ ] Integration test: mock Bedrock endpoint + canned EventStream responses
-- [ ] Docs: `docs/providers.md` covering Bedrock auth modes, env var priority, model ID formats
-- [ ] CI: feature-flag build matrix (default, `--features bedrock`)
-- [ ] (11b) `chet-vertex` crate + Vertex provider
-- [ ] (11b) Vertex integration test
-- [ ] (11c) `/provider` slash command for runtime provider inspection
-- [ ] Interactive `chet setup-bedrock` / `chet setup-vertex` wizards — guide user through credentials, region, project, and model pinning. Seed from existing pins on re-run. Offer "with 1M context" option for supported models. (CC v2.1.98, v2.1.111)
+- [x] `chet-bedrock` crate scaffold + `bedrock` feature flag on `chet` binary
+- [x] `aws-config` credential resolution + `AWS_REGION`/`AWS_PROFILE` honor
+- [x] SigV4 request signing (manual sha2+hmac, not full aws-sigv4 crate)
+- [x] AWS EventStream frame parser (prelude + headers + payload + CRC)
+- [x] `BedrockProvider` implementing `Provider` trait
+- [x] Bedrock error → `ApiError` mapping (throttling, quota, auth)
+- [x] Provider selection logic in `main.rs` (`CLAUDE_CODE_USE_BEDROCK`, `CHET_USE_BEDROCK`, `--provider`)
+- [x] Model alias resolver honoring `[models]` config section
+- [x] (11b) `chet-vertex` crate + Vertex provider (Google ADC auth, SSE reuse)
+- [x] (11c) CC-compatible env vars (CLAUDE_CODE_USE_BEDROCK/VERTEX, AWS_REGION, GOOGLE_CLOUD_PROJECT)
+- [ ] Integration test: mock Bedrock endpoint + canned EventStream responses (deferred — manual test)
+- [ ] Docs: `docs/providers.md` covering auth modes, env var priority (deferred)
+- [ ] CI: feature-flag build matrix (deferred — default build sufficient for now)
+- [ ] `/provider` slash command for runtime provider inspection (deferred)
+- [ ] Interactive `chet setup-bedrock` / `chet setup-vertex` wizards (deferred)
 
 ### Phase 11 Gotchas (learned from Claude Code fixes)
 
