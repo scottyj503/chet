@@ -576,7 +576,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chet"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "chet-api",
@@ -603,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "chet-api"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bytes",
  "chet-types",
@@ -621,7 +621,7 @@ dependencies = [
 
 [[package]]
 name = "chet-bedrock"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -640,7 +640,7 @@ dependencies = [
 
 [[package]]
 name = "chet-config"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chet-api",
  "chet-mcp",
@@ -656,7 +656,7 @@ dependencies = [
 
 [[package]]
 name = "chet-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chet-api",
  "chet-permissions",
@@ -675,7 +675,7 @@ dependencies = [
 
 [[package]]
 name = "chet-lsp"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chet-types",
  "serde",
@@ -687,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "chet-mcp"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chet-types",
  "serde",
@@ -701,7 +701,7 @@ dependencies = [
 
 [[package]]
 name = "chet-permissions"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chet-types",
  "globset",
@@ -715,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "chet-plugins"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chet-types",
  "serde",
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "chet-sandbox"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chet-types",
  "thiserror 2.0.18",
@@ -738,7 +738,7 @@ dependencies = [
 
 [[package]]
 name = "chet-session"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chet-types",
  "chrono",
@@ -753,7 +753,7 @@ dependencies = [
 
 [[package]]
 name = "chet-terminal"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chet-types",
  "crossterm",
@@ -766,7 +766,7 @@ dependencies = [
 
 [[package]]
 name = "chet-tools"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chet-session",
  "chet-types",
@@ -785,7 +785,7 @@ dependencies = [
 
 [[package]]
 name = "chet-types"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "futures-core",
  "serde",
@@ -796,7 +796,7 @@ dependencies = [
 
 [[package]]
 name = "chet-vertex"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chet-types",
  "futures-util",
