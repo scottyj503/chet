@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 11 COMPLETE — v0.2.0 shipped
+## Current Phase: Phase 11 COMPLETE — v0.3.1 shipped
 
 ## Phase Status
 
@@ -119,12 +119,12 @@ Add AWS Bedrock and Google Vertex AI support, building on the existing `Provider
 
 ## Test Summary
 
-- 458 unit tests passing (34 api, 17 config, 16 core/agent+subagent+worktree, 35 tools, 55 permissions, 58 session, 27 types, 153 terminal, 15 cli, 29 mcp)
+- 482 unit tests passing (29 api, 17 config, 16 core/agent+subagent+worktree, 59 tools, 55 permissions, 58 session, 35 types, 153 terminal, 15 cli, 29 mcp, 12 bedrock, 4 vertex)
   - 10 agent integration tests (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state + 1 parallel-failure-isolation + 1 mixed-parallel-sequential)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
 - 4 retry integration tests (TCP test server, run with `cargo test -p chet-api --test retry_integration -- --ignored`)
-- 8 agent integration tests in cancellation_integration.rs (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state, run with `cargo test -p chet-core --test cancellation_integration -- --ignored`)
+- 10 agent integration tests in cancellation_integration.rs (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state + 1 parallel-failure-isolation + 1 mixed-parallel-sequential, run with `cargo test -p chet-core --test cancellation_integration -- --ignored`)
 - 1 pipe mode integration test (ANSI-free output, run with `cargo test -p chet --test pipe_mode -- --ignored`)
 - 3 MCP end-to-end tests (Python MCP server, run with `cargo test -p chet-mcp --test mcp_e2e -- --ignored`)
 - 3 session round-trip tests (filesystem, run with `cargo test -p chet-session --test session_roundtrip -- --ignored`)
@@ -274,7 +274,7 @@ Enforced by CI (`file-size` job in `.github/workflows/ci.yml`):
 When a file exceeds the limit, split by single responsibility into submodules. Re-export the public API from the parent module so callers don't change.
 
 ### Module Organization
-- `chet-cli/src/`: `main.rs` (entry), `repl.rs`, `commands.rs`, `runner.rs`, `plan.rs`, `prompts.rs`, `prompt.rs`
+- `chet-cli/src/`: `main.rs` (entry), `repl.rs`, `commands.rs`, `runner.rs`, `context.rs` (parameter structs), `plan.rs`, `prompts.rs`, `prompt.rs`
 - `chet-terminal/src/`: `markdown.rs` (renderer), `inline.rs` (inline formatting), `table.rs` (table rendering)
 - `chet-core/tests/`: `common/mod.rs` (shared test harness), `cancellation_integration.rs`
 - Run `cargo fmt --all` before committing. CI checks formatting.
@@ -307,3 +307,4 @@ When a file exceeds the limit, split by single responsibility into submodules. R
 | 2026-02-19 | O(n²) fix: std::mem::take | Move messages into request, restore after API call — O(1) vs clone's O(n) per iteration |
 | 2026-04-08 | Phase 11: Bedrock/Vertex providers feature-flagged | `aws-config` + `aws-sigv4` (not full `aws-sdk-bedrockruntime`) for mid-weight deps. Feature flags keep default binary small; CI/CD users unaffected |
 | 2026-04-08 | Honor CC env vars (`CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_*_MODEL`) | Drop-in compatibility with existing CC user setups. Aliases `sonnet`/`haiku`/`opus` resolve via env vars when set, else `[models]` config, else hard default |
+| 2026-04-17 | v0.3.1 refactoring true-up | Decomposed Agent::run() (440→100 lines), introduced CLI context structs (10-11 params→2-3), centralized 4 workspace deps, added Spinner Drop safety net, converted API retry body to Bytes, fixed grep case_insensitive/context bugs, added 24 tool error-path tests (35→59 in chet-tools) |
