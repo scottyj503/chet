@@ -55,6 +55,7 @@ pub(crate) async fn fire_stop_failure_hook(permissions: &Arc<PermissionEngine>, 
         worktree_source: None,
         messages_removed: None,
         messages_remaining: None,
+        config_path: None,
     };
     if let Err(msg) = permissions
         .run_hooks(&HookEvent::StopFailure, &hook_input)

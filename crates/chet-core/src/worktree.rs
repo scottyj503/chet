@@ -75,6 +75,7 @@ impl ManagedWorktree {
                 worktree_source: Some(self.source.display().to_string()),
                 messages_removed: None,
                 messages_remaining: None,
+                config_path: None,
             };
             if let Err(msg) = permissions
                 .run_hooks(&HookEvent::WorktreeRemove, &hook_input)
@@ -240,6 +241,7 @@ pub async fn create_worktree(
             worktree_source: Some(repo_root.display().to_string()),
             messages_removed: None,
             messages_remaining: None,
+            config_path: None,
         };
         if let Err(reason) = permissions
             .run_hooks(&HookEvent::WorktreeCreate, &hook_input)

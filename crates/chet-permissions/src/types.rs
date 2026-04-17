@@ -71,6 +71,7 @@ pub enum HookEvent {
     PostCompact,
     InstructionsLoaded,
     StopFailure,
+    ConfigChange,
 }
 
 /// Configuration for a single hook script.
@@ -118,6 +119,9 @@ pub struct HookInput {
     /// Number of messages remaining (for post_compact events).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub messages_remaining: Option<usize>,
+    /// Path to the changed config file (for config_change events).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_path: Option<String>,
 }
 
 #[cfg(test)]
@@ -154,6 +158,7 @@ mod tests {
             worktree_source: Some("/home/user/repo".to_string()),
             messages_removed: None,
             messages_remaining: None,
+            config_path: None,
         };
         let json = serde_json::to_value(&input).unwrap();
         assert_eq!(json["event"], "worktree_create");
@@ -174,6 +179,7 @@ mod tests {
             worktree_source: None,
             messages_removed: None,
             messages_remaining: None,
+            config_path: None,
         };
         let json = serde_json::to_value(&input).unwrap();
         assert!(json.get("worktree_path").is_none());
@@ -192,6 +198,7 @@ mod tests {
             worktree_source: Some("/repo".to_string()),
             messages_removed: None,
             messages_remaining: None,
+            config_path: None,
         };
         let json = serde_json::to_string(&input).unwrap();
         let back: HookInput = serde_json::from_str(&json).unwrap();
@@ -221,6 +228,7 @@ mod tests {
             worktree_source: None,
             messages_removed: Some(12),
             messages_remaining: Some(3),
+            config_path: None,
         };
         let json = serde_json::to_value(&input).unwrap();
         assert_eq!(json["event"], "post_compact");
@@ -242,9 +250,38 @@ mod tests {
             worktree_source: None,
             messages_removed: None,
             messages_remaining: None,
+            config_path: None,
         };
         let json = serde_json::to_value(&input).unwrap();
         assert!(json.get("messages_removed").is_none());
         assert!(json.get("messages_remaining").is_none());
+    }
+
+    #[test]
+    fn hook_event_serde_config_change() {
+        let event = HookEvent::ConfigChange;
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(json, "\"config_change\"");
+        let back: HookEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, HookEvent::ConfigChange);
+    }
+
+    #[test]
+    fn hook_input_config_path_serializes() {
+        let input = HookInput {
+            event: HookEvent::ConfigChange,
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: None,
+            worktree_path: None,
+            worktree_source: None,
+            messages_removed: None,
+            messages_remaining: None,
+            config_path: Some("/home/user/.chet/config.toml".to_string()),
+        };
+        let json = serde_json::to_value(&input).unwrap();
+        assert_eq!(json["event"], "config_change");
+        assert_eq!(json["config_path"], "/home/user/.chet/config.toml");
     }
 }

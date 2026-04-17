@@ -154,6 +154,7 @@ mod tests {
             worktree_source: None,
             messages_removed: None,
             messages_remaining: None,
+            config_path: None,
         }
     }
 

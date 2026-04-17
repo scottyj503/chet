@@ -428,6 +428,7 @@ impl Agent {
                     worktree_source: None,
                     messages_removed: None,
                     messages_remaining: None,
+                    config_path: None,
                 };
                 if let Err(reason) = self
                     .permissions
@@ -588,6 +589,7 @@ impl Agent {
             worktree_source: None,
             messages_removed: None,
             messages_remaining: None,
+            config_path: None,
         };
         if let Err(msg) = self
             .permissions

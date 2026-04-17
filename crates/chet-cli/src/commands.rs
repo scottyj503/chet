@@ -142,6 +142,7 @@ async fn handle_compact(
                 worktree_source: None,
                 messages_removed: Some(removed),
                 messages_remaining: Some(session.messages.len()),
+                config_path: None,
             };
             if let Err(msg) = hooks_engine
                 .run_hooks(&chet_permissions::HookEvent::PostCompact, &hook_input)

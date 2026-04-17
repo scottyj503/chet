@@ -62,9 +62,17 @@ pub(crate) async fn repl(
                 worktree_source: None,
                 messages_removed: None,
                 messages_remaining: None,
+                config_path: None,
             },
         )
         .await;
+
+    // Spawn background config file watcher (fires ConfigChange hook on mtime changes)
+    let config_watcher_handle = spawn_config_watcher(
+        Arc::clone(&hooks_engine),
+        config.config_dir.join("config.toml"),
+        cwd.join(".chet").join("config.toml"),
+    );
 
     // Load or create session
     let mut session = match &resume_id {
@@ -427,6 +435,9 @@ pub(crate) async fn repl(
         manager.shutdown().await;
     }
 
+    // Stop config watcher
+    config_watcher_handle.abort();
+
     // Reset terminal title
     if stderr_is_tty {
         set_terminal_title("Terminal");
@@ -440,4 +451,62 @@ pub(crate) async fn repl(
 fn set_terminal_title(title: &str) {
     let _ = write!(std::io::stderr(), "\x1b]0;{title}\x07");
     let _ = std::io::stderr().flush();
+}
+
+/// Spawn a background task that polls config file mtimes every 5 seconds
+/// and fires ConfigChange hook when one of them changes.
+fn spawn_config_watcher(
+    hooks_engine: Arc<PermissionEngine>,
+    global_path: std::path::PathBuf,
+    project_path: std::path::PathBuf,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut global_mtime = mtime_of(&global_path);
+        let mut project_mtime = mtime_of(&project_path);
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+        interval.tick().await; // skip the initial tick
+
+        loop {
+            interval.tick().await;
+
+            let new_global = mtime_of(&global_path);
+            if new_global != global_mtime {
+                global_mtime = new_global;
+                fire_config_change(&hooks_engine, &global_path).await;
+            }
+
+            let new_project = mtime_of(&project_path);
+            if new_project != project_mtime {
+                project_mtime = new_project;
+                fire_config_change(&hooks_engine, &project_path).await;
+            }
+        }
+    })
+}
+
+/// Get file mtime as `Option<SystemTime>`. Returns None if file doesn't exist.
+fn mtime_of(path: &std::path::Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// Fire ConfigChange hook with the changed file path.
+async fn fire_config_change(hooks_engine: &Arc<PermissionEngine>, path: &std::path::Path) {
+    let hook_input = chet_permissions::HookInput {
+        event: chet_permissions::HookEvent::ConfigChange,
+        tool_name: None,
+        tool_input: None,
+        tool_output: None,
+        is_error: None,
+        worktree_path: None,
+        worktree_source: None,
+        messages_removed: None,
+        messages_remaining: None,
+        config_path: Some(path.display().to_string()),
+    };
+    if let Err(msg) = hooks_engine
+        .run_hooks(&chet_permissions::HookEvent::ConfigChange, &hook_input)
+        .await
+    {
+        tracing::warn!("config_change hook error: {msg}");
+    }
 }

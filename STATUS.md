@@ -119,7 +119,7 @@ Add AWS Bedrock and Google Vertex AI support, building on the existing `Provider
 
 ## Test Summary
 
-- 436 unit tests passing (34 api, 17 config, 16 core/agent+subagent+worktree, 35 tools, 50 permissions, 58 session, 27 types, 153 terminal, 15 cli, 29 mcp)
+- 438 unit tests passing (34 api, 17 config, 16 core/agent+subagent+worktree, 35 tools, 52 permissions, 58 session, 27 types, 153 terminal, 15 cli, 29 mcp)
   - 10 agent integration tests (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state + 1 parallel-failure-isolation + 1 mixed-parallel-sequential)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
@@ -173,7 +173,7 @@ Bugs found and fixed:
 - **LSP Client**: Opt-in (default off), --lsp flag or [lsp] config. Grep/Read cover 90% of needs; LSP is heavyweight (1-2GB RAM) and hurts CI/CD. Revisit if users request it. Filter gitignored files from results.
 - ~~**Worktree isolation**~~: **DONE** — `--worktree` flag + subagent `isolation: "worktree"` for parallel agents in isolated git worktrees. `WorktreeCreate`/`WorktreeRemove` hook events, RAII cleanup via `ManagedWorktree`.
 - ~~**Non-interactive mode optimization**~~: **DONE** — TTY detection via `std::io::IsTerminal`, plain markdown passthrough, silent spinner, plain tool events, no ANSI in piped output.
-- **ConfigChange hook event**: Fire hook when config files change during a session. Enables hot-reload without restart.
+- ~~**ConfigChange hook event**~~: **DONE** — Background task polls `~/.chet/config.toml` and `.chet/config.toml` mtimes every 5s. On change, fires `config_change` hook with `config_path` in payload. No new deps (uses std mtime instead of notify crate). 2 new tests.
 - ~~**File-not-found path suggestions**~~: **DONE** — Read/Edit tools now walk the repo (via .git discovery) on NotFound and suggest files with matching basenames. Skips target/, node_modules/, .venv/, etc. Cap 5 suggestions, max depth 8. New `path_suggest` module with 6 tests.
 - ~~**Enhanced permission restriction reasons**~~: **DONE** — Block/Prompt messages now include the matched input args: "Tool 'Bash' (command: rm -rf /tmp/foo) blocked by permission (rule: Bash [command:rm *] -> block)". Extracts key string fields (command, file_path, path, url, pattern), truncated at 80 chars. 3 new tests.
 - ~~**Status line**~~: **DONE** — Persistent terminal status bar (DECSTBM scroll region) showing model, context usage, tokens, effort, session ID, plan mode badge, and active tool. Updates in real-time during agent execution. Suspend/resume around line editor. SIGWINCH resize handling. TTY-only (skipped in print mode).
