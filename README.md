@@ -10,8 +10,8 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 - **Built-in tools** — Read, Write, Edit, Bash, Glob, Grep, Subagent, MemoryRead, MemoryWrite
 - **MCP servers** — connect external tool providers via JSON-RPC 2.0 over stdio; `/mcp reconnect` for resilient reconnection; binary content saved to disk
 - **Agent loop** — automatic tool use cycles (Claude calls tools, gets results, continues)
-- **Permission system** — permit/block/prompt rules, before/after hooks, HTTP webhook hooks, `--ludicrous` mode; compound commands matched per-subcommand
-- **Session management** — auto-save, `--resume`, `-n`/`--name`, `/compact`, context tracking, auto-labeling
+- **Permission system** — permit/block/prompt rules, before/after hooks, HTTP webhook hooks, `--ludicrous` mode; compound commands matched per-subcommand; specificity-based evaluation (specific rules override general)
+- **Session management** — auto-save, `--resume`, `-n`/`--name`, `/compact`, auto-compaction (80% threshold with circuit breaker), context tracking, auto-labeling
 - **Prompt caching** — automatic cache control on system prompt and tool definitions
 - **Extended thinking** — opt-in via `--thinking-budget` or `--effort` (low/medium/high/auto)
 - **Streaming markdown** — bold, italic, headings, code blocks with syntax highlighting, lists, links, blockquotes, tables with box-drawing
@@ -24,7 +24,7 @@ Chet talks to the Anthropic Messages API and uses tools to read, write, edit, se
 - **Persistent memory** — global and per-project memory files loaded into system prompt, writable via tools, survives across sessions; `/memory` command to view/edit/reset
 - **Line editor** — arrow keys, Home/End, word movement, history, tab completion for slash commands
 - **REPL + print mode** — interactive or single-shot (`chet -p "explain this code"`)
-- **Worktree isolation** — `--worktree` flag runs entire session in an isolated git worktree; subagents support `isolation: "worktree"` for conflict-free parallel execution
+- **Worktree isolation** — `--worktree` flag runs entire session in an isolated git worktree; subagents support `isolation: "worktree"` for conflict-free parallel execution; `/worktree exit` to return to original CWD
 - **Parallel tool execution** — read-only tools (Read, Glob, Grep) run concurrently; failures isolated per-tool
 - **CI/CD-friendly** — auto-detects piped output: no ANSI escapes, no spinner, plain tool events (`chet -p "..." | jq`); SIGHUP-safe session flush
 - **TOML config** — `~/.chet/config.toml` for persistent settings
@@ -118,6 +118,7 @@ Options:
 | `/compact`           | Compact conversation (archive + summarize) |
 | `/sessions`          | List saved sessions                      |
 | `/resume <prefix>`   | Resume a saved session by ID prefix      |
+| `/worktree exit`     | Exit worktree, restore original CWD      |
 | `/clear`             | Clear conversation (starts new session)  |
 | `/quit`              | Exit                                     |
 
