@@ -113,6 +113,7 @@ pub enum Effort {
     Low,
     Medium,
     High,
+    XHigh,
 }
 
 impl Effort {
@@ -122,6 +123,7 @@ impl Effort {
             Effort::Low => 1024,
             Effort::Medium => 8192,
             Effort::High => 32768,
+            Effort::XHigh => 65536,
         }
     }
 }
@@ -132,6 +134,7 @@ impl std::fmt::Display for Effort {
             Effort::Low => write!(f, "low"),
             Effort::Medium => write!(f, "medium"),
             Effort::High => write!(f, "high"),
+            Effort::XHigh => write!(f, "xhigh"),
         }
     }
 }
@@ -143,8 +146,9 @@ impl std::str::FromStr for Effort {
             "low" => Ok(Effort::Low),
             "medium" | "med" => Ok(Effort::Medium),
             "high" => Ok(Effort::High),
+            "xhigh" => Ok(Effort::XHigh),
             _ => Err(format!(
-                "unknown effort level: {s} (use low, medium, high, or auto)"
+                "unknown effort level: {s} (use low, medium, high, xhigh, or auto)"
             )),
         }
     }
@@ -376,6 +380,8 @@ mod tests {
         assert_eq!("med".parse::<Effort>().unwrap(), Effort::Medium);
         assert_eq!("high".parse::<Effort>().unwrap(), Effort::High);
         assert_eq!("HIGH".parse::<Effort>().unwrap(), Effort::High);
+        assert_eq!("xhigh".parse::<Effort>().unwrap(), Effort::XHigh);
+        assert_eq!("XHIGH".parse::<Effort>().unwrap(), Effort::XHigh);
         assert!("invalid".parse::<Effort>().is_err());
         // "auto" is handled by the REPL, not by Effort::from_str
         assert!("auto".parse::<Effort>().is_err());
@@ -386,6 +392,7 @@ mod tests {
         assert_eq!(Effort::Low.budget_tokens(), 1024);
         assert_eq!(Effort::Medium.budget_tokens(), 8192);
         assert_eq!(Effort::High.budget_tokens(), 32768);
+        assert_eq!(Effort::XHigh.budget_tokens(), 65536);
     }
 
     #[test]
@@ -393,6 +400,7 @@ mod tests {
         assert_eq!(Effort::Low.to_string(), "low");
         assert_eq!(Effort::Medium.to_string(), "medium");
         assert_eq!(Effort::High.to_string(), "high");
+        assert_eq!(Effort::XHigh.to_string(), "xhigh");
     }
 
     #[test]

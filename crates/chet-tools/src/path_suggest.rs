@@ -83,7 +83,16 @@ fn is_excluded_dir(path: &Path) -> bool {
     let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
     matches!(
         name,
-        ".git" | "target" | "node_modules" | ".venv" | "venv" | "__pycache__" | "dist" | "build"
+        ".git"
+            | ".jj"
+            | ".sl"
+            | "target"
+            | "node_modules"
+            | ".venv"
+            | "venv"
+            | "__pycache__"
+            | "dist"
+            | "build"
     )
 }
 

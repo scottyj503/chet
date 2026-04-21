@@ -168,6 +168,7 @@ fn search_files(
         for entry in walkdir::WalkDir::new(path)
             .follow_links(false)
             .into_iter()
+            .filter_entry(|e| !is_vcs_dir(e))
             .filter_map(|e| e.ok())
         {
             if !entry.file_type().is_file() {
@@ -245,6 +246,10 @@ impl Sink for ContentSink<'_> {
         self.results.push("--".to_string());
         Ok(true)
     }
+}
+
+fn is_vcs_dir(entry: &walkdir::DirEntry) -> bool {
+    entry.file_type().is_dir() && matches!(entry.file_name().to_str(), Some(".git" | ".jj" | ".sl"))
 }
 
 fn search_single_file(

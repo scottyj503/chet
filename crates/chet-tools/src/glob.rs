@@ -83,6 +83,7 @@ impl Tool for GlobTool {
                 for entry in walkdir::WalkDir::new(&search_dir_clone)
                     .follow_links(false)
                     .into_iter()
+                    .filter_entry(|e| !is_vcs_dir(e))
                     .filter_map(|e| e.ok())
                 {
                     let path = entry.path();
@@ -121,6 +122,10 @@ impl Tool for GlobTool {
             Ok(ToolOutput::text(output))
         })
     }
+}
+
+fn is_vcs_dir(entry: &walkdir::DirEntry) -> bool {
+    entry.file_type().is_dir() && matches!(entry.file_name().to_str(), Some(".git" | ".jj" | ".sl"))
 }
 
 #[cfg(test)]

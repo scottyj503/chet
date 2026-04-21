@@ -447,7 +447,7 @@ fn copy_to_clipboard(text: &str) -> bool {
 fn print_help() {
     eprintln!("Available commands:");
     eprintln!("  /help     — Show this help");
-    eprintln!("  /effort   — Show or set effort level (low, medium, high, auto)");
+    eprintln!("  /effort   — Show or set effort level (low, medium, high, xhigh, auto)");
     eprintln!("  /plan     — Toggle plan mode (read-only exploration)");
     eprintln!("  /mcp      — Show connected MCP servers and tools");
     eprintln!("  /memory   — View/edit/reset persistent memory");
@@ -462,6 +462,6 @@ fn print_help() {
     eprintln!("  /quit     — Exit");
     eprintln!();
     eprintln!("Flags:");
-    eprintln!("  --effort <level>       — Set effort level (low, medium, high)");
+    eprintln!("  --effort <level>       — Set effort level (low, medium, high, xhigh)");
     eprintln!("  --thinking-budget <N>  — Enable extended thinking (token budget)");
 }

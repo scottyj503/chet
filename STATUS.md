@@ -170,18 +170,17 @@ Bugs found and fixed:
 
 ## Post-v1
 
-### Completed (56 items)
+### Completed (58 items)
 
 <details>
 <summary>All completed Post-v1 items (click to expand)</summary>
 
-- ~~**Worktree isolation**~~, ~~**Non-interactive mode optimization**~~, ~~**ConfigChange hook event**~~, ~~**File-not-found path suggestions**~~, ~~**Enhanced permission restriction reasons**~~, ~~**Status line**~~, ~~**Memory management**~~, ~~**`chet agents` CLI command**~~, ~~**MCP reconnect resilience**~~, ~~**Session flush on disconnect**~~, ~~**Auto-memory**~~, ~~**Smarter bash permission prefixes**~~, ~~**Config file corruption prevention**~~, ~~**Tool result disk persistence**~~, ~~**`/copy` command**~~, ~~**`/model` human-readable labels**~~, ~~**HTTP hooks**~~, ~~**Effort levels**~~, ~~**Agent name in terminal title**~~, ~~**`InstructionsLoaded` hook event**~~, ~~**Concise subagent reports**~~, ~~**`/resume` shows most recent prompt**~~, ~~**Skip compaction preamble recap**~~, ~~**Compaction preserves images for cache reuse**~~, ~~**Skip skill re-injection on `/resume`**~~ (N/A), ~~**MCP binary content to disk**~~, ~~**Increased output token limits**~~, ~~**`/effort auto`**~~, ~~**`-n` / `--name` session flag**~~, ~~**`/plan` with description**~~, ~~**Memory file timestamps**~~, ~~**`PostCompact` hook event**~~, ~~**`/context` actionable suggestions**~~, ~~**Parallel tool failure isolation**~~, ~~**Strip progress messages during compaction**~~, ~~**Background bash output kill limit**~~, ~~**Session auto-naming from plan content**~~, ~~**`allowRead` sandbox setting**~~, ~~**`ExitWorktree` tool**~~, ~~**Auto-compaction circuit breaker**~~, ~~**`autoMemoryDirectory` setting**~~, ~~**Token estimation audit**~~, ~~**`StopFailure` hook event**~~, ~~**MCP deny rule enforcement**~~, ~~**Worktree hooks/config loading**~~, ~~**Custom model option**~~, ~~**Agent frontmatter**~~, ~~**MCP elicitation**~~ (N/A — no servers use it), ~~**`--resume` filter print-mode sessions**~~ (deferred), and more.
+- ~~**Worktree isolation**~~, ~~**Non-interactive mode optimization**~~, ~~**ConfigChange hook event**~~, ~~**File-not-found path suggestions**~~, ~~**Enhanced permission restriction reasons**~~, ~~**Status line**~~, ~~**Memory management**~~, ~~**`chet agents` CLI command**~~, ~~**MCP reconnect resilience**~~, ~~**Session flush on disconnect**~~, ~~**Auto-memory**~~, ~~**Smarter bash permission prefixes**~~, ~~**Config file corruption prevention**~~, ~~**Tool result disk persistence**~~, ~~**`/copy` command**~~, ~~**`/model` human-readable labels**~~, ~~**HTTP hooks**~~, ~~**Effort levels**~~, ~~**Agent name in terminal title**~~, ~~**`InstructionsLoaded` hook event**~~, ~~**Concise subagent reports**~~, ~~**`/resume` shows most recent prompt**~~, ~~**Skip compaction preamble recap**~~, ~~**Compaction preserves images for cache reuse**~~, ~~**Skip skill re-injection on `/resume`**~~ (N/A), ~~**MCP binary content to disk**~~, ~~**Increased output token limits**~~, ~~**`/effort auto`**~~, ~~**`-n` / `--name` session flag**~~, ~~**`/plan` with description**~~, ~~**Memory file timestamps**~~, ~~**`PostCompact` hook event**~~, ~~**`/context` actionable suggestions**~~, ~~**Parallel tool failure isolation**~~, ~~**Strip progress messages during compaction**~~, ~~**Background bash output kill limit**~~, ~~**Session auto-naming from plan content**~~, ~~**`allowRead` sandbox setting**~~, ~~**`ExitWorktree` tool**~~, ~~**Auto-compaction circuit breaker**~~, ~~**`autoMemoryDirectory` setting**~~, ~~**Token estimation audit**~~, ~~**`StopFailure` hook event**~~, ~~**MCP deny rule enforcement**~~, ~~**Worktree hooks/config loading**~~, ~~**Custom model option**~~, ~~**Agent frontmatter**~~, ~~**MCP elicitation**~~ (N/A — no servers use it), ~~**`--resume` filter print-mode sessions**~~ (deferred), ~~**VCS directory exclusions**~~, ~~**xhigh effort level**~~, and more.
 
 </details>
 
-### Worth Doing — High Value, Reasonable Effort (21 items)
+### Worth Doing — High Value, Reasonable Effort (19 items)
 
-- **VCS directory exclusions**: Add `.jj` (Jujutsu) and `.sl` (Sapling) to Grep/Glob exclusion lists alongside `.git`. ~5 min.
 - **MCP tool description cap**: Cap MCP tool descriptions at 2KB to prevent OpenAPI-generated servers from bloating context window. ~10 min.
 - **Token count formatting**: Display >=1M tokens as "1.5m" instead of "1512.6k" in status line and `/context`. ~10 min.
 - **Tool result file cleanup**: Clean up `.chet-tool-output/` files after configurable period (`cleanup_period_days`). ~20 min.
@@ -192,7 +191,6 @@ Bugs found and fixed:
 - **Read-only glob auto-allow**: `ls *.ts`, `cat src/*.rs` shouldn't prompt. Expand read-only detection. ~10 min.
 - **`cd <cwd> &&` prefix auto-allow**: Compound bash commands starting with `cd` into CWD shouldn't prompt. ~10 min.
 - **UTF-8 chunk boundary audit**: Audit SSE parser for multi-byte sequences split across HTTP chunks. ~20 min.
-- **xhigh effort level for Opus 4.7**: Add `xhigh` effort level (64K tokens). ~5 min.
 - **Plan file naming from prompt**: Name plan files after the user's prompt instead of session-id + timestamp. ~10 min.
 - **`ENABLE_PROMPT_CACHING_1H` env var**: Opt into 1-hour prompt cache TTL. ~10 min.
 - **MCP connection non-blocking in print mode**: Bound MCP connection wait at 5s in `-p` mode. ~15 min.
