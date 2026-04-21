@@ -179,7 +179,7 @@ Bugs found and fixed:
 
 </details>
 
-### Worth Doing — High Value, Reasonable Effort (15 items)
+### Worth Doing — High Value, Reasonable Effort (21 items)
 
 - **VCS directory exclusions**: Add `.jj` (Jujutsu) and `.sl` (Sapling) to Grep/Glob exclusion lists alongside `.git`. ~5 min.
 - **MCP tool description cap**: Cap MCP tool descriptions at 2KB to prevent OpenAPI-generated servers from bloating context window. ~10 min.
@@ -196,8 +196,14 @@ Bugs found and fixed:
 - **Plan file naming from prompt**: Name plan files after the user's prompt instead of session-id + timestamp. ~10 min.
 - **`ENABLE_PROMPT_CACHING_1H` env var**: Opt into 1-hour prompt cache TTL. ~10 min.
 - **MCP connection non-blocking in print mode**: Bound MCP connection wait at 5s in `-p` mode. ~15 min.
+- **Thinking spinner progress messages**: Time-based spinner text changes ("still thinking", "thinking more", "almost done") instead of static message. ~15 min. (CC v2.1.116)
+- **Bash `gh` rate-limit hint**: Detect GitHub API rate limit errors in bash output and surface a hint so the agent backs off. ~10 min. (CC v2.1.116)
+- **MCP deferred resource listing**: Skip `resources/templates/list` at startup, defer to first `@`-mention or tool call. Faster MCP startup with many servers. ~20 min. (CC v2.1.116)
+- **`/resume` error surfacing**: Surface load errors on corrupt/oversized session files instead of silently showing empty conversation. ~10 min. (CC v2.1.116)
+- **Cache control TTL ordering audit**: Verify cache_control ordering is stable when tool list changes between turns to prevent API 400 errors. ~15 min. (CC v2.1.116)
+- **Worktree mid-session slash command audit**: Verify `/resume`, `/sessions`, and other commands work correctly when CWD is a worktree. ~15 min. (CC v2.1.116)
 
-### Nice to Have — Moderate Value (20 items)
+### Nice to Have — Moderate Value (22 items)
 
 - **Session ID header**: Add `X-Chet-Session-Id` to API requests for proxy aggregation.
 - **Conditional hook `if` field**: Filter hooks by tool pattern to reduce process spawning.
@@ -219,6 +225,8 @@ Bugs found and fixed:
 - **Worktree resume restoration**: `--resume` restores worktree automatically.
 - **Print mode partial response preservation**: Preserve partial output on Ctrl+C.
 - **Piped compound command denies**: Deny rules must win across all pipe subcommands.
+- **Dangerous-path guard**: Defense-in-depth block for `rm -rf /`, `rm -rf $HOME`, etc. even when permission rules permit Bash. (CC v2.1.116)
+- **Indic/wide-char column alignment**: Audit terminal renderer for multi-width Unicode (Devanagari, CJK) column alignment. (CC v2.1.116)
 
 ### Skip / Extremely Niche (39 items)
 
