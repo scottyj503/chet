@@ -19,7 +19,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 authors = ["Scott Johnson"]
 license = "MIT"
@@ -65,20 +65,20 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Internal crates
-chet-types = { path = "crates/chet-types", version = "0.3.2" }
-chet-config = { path = "crates/chet-config", version = "0.3.2" }
-chet-api = { path = "crates/chet-api", version = "0.3.2" }
-chet-core = { path = "crates/chet-core", version = "0.3.2" }
-chet-tools = { path = "crates/chet-tools", version = "0.3.2" }
-chet-permissions = { path = "crates/chet-permissions", version = "0.3.2" }
-chet-terminal = { path = "crates/chet-terminal", version = "0.3.2" }
-chet-session = { path = "crates/chet-session", version = "0.3.2" }
-chet-mcp = { path = "crates/chet-mcp", version = "0.3.2" }
-chet-plugins = { path = "crates/chet-plugins", version = "0.3.2" }
-chet-lsp = { path = "crates/chet-lsp", version = "0.3.2" }
-chet-sandbox = { path = "crates/chet-sandbox", version = "0.3.2" }
-chet-bedrock = { path = "crates/chet-bedrock", version = "0.3.2" }
-chet-vertex = { path = "crates/chet-vertex", version = "0.3.2" }
+chet-types = { path = "crates/chet-types", version = "0.3.3" }
+chet-config = { path = "crates/chet-config", version = "0.3.3" }
+chet-api = { path = "crates/chet-api", version = "0.3.3" }
+chet-core = { path = "crates/chet-core", version = "0.3.3" }
+chet-tools = { path = "crates/chet-tools", version = "0.3.3" }
+chet-permissions = { path = "crates/chet-permissions", version = "0.3.3" }
+chet-terminal = { path = "crates/chet-terminal", version = "0.3.3" }
+chet-session = { path = "crates/chet-session", version = "0.3.3" }
+chet-mcp = { path = "crates/chet-mcp", version = "0.3.3" }
+chet-plugins = { path = "crates/chet-plugins", version = "0.3.3" }
+chet-lsp = { path = "crates/chet-lsp", version = "0.3.3" }
+chet-sandbox = { path = "crates/chet-sandbox", version = "0.3.3" }
+chet-bedrock = { path = "crates/chet-bedrock", version = "0.3.3" }
+chet-vertex = { path = "crates/chet-vertex", version = "0.3.3" }
 
 [profile.release]
 lto = true
