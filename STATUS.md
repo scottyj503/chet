@@ -72,6 +72,7 @@ Add AWS Bedrock and Google Vertex AI support, building on the existing `Provider
 - **Empty `AWS_BEARER_TOKEN_BEDROCK` = not set** — GitHub Actions exports empty strings for unset inputs. Treat empty-string env vars as absent before deciding bearer vs SigV4 auth. (CC v2.1.97)
 - **Model picker for non-US Bedrock regions** — Don't persist `us.*` inference profile IDs to config when the user is in a non-US region. Wait for inference profile discovery to complete before writing. (CC v2.1.105)
 - **Rate limits don't reference status.claude.com on Bedrock/Vertex** — That page only covers Anthropic-operated providers. Use cloud-provider-specific status links or omit. (CC v2.1.111)
+- **Bedrock inference profiles + Opus 4.7 thinking disabled → 400** — Application inference profiles backed by Opus 4.7 fail with 400 when thinking is not enabled. May need to force-enable thinking or handle the error gracefully. (CC v2.1.117)
 
 ### Phase 9 Checklist
 
@@ -179,7 +180,7 @@ Bugs found and fixed:
 
 </details>
 
-### Worth Doing — High Value, Reasonable Effort (19 items)
+### Worth Doing — High Value, Reasonable Effort (23 items)
 
 - **MCP tool description cap**: Cap MCP tool descriptions at 2KB to prevent OpenAPI-generated servers from bloating context window. ~10 min.
 - **Token count formatting**: Display >=1M tokens as "1.5m" instead of "1512.6k" in status line and `/context`. ~10 min.
@@ -200,8 +201,12 @@ Bugs found and fixed:
 - **`/resume` error surfacing**: Surface load errors on corrupt/oversized session files instead of silently showing empty conversation. ~10 min. (CC v2.1.116)
 - **Cache control TTL ordering audit**: Verify cache_control ordering is stable when tool list changes between turns to prevent API 400 errors. ~15 min. (CC v2.1.116)
 - **Worktree mid-session slash command audit**: Verify `/resume`, `/sessions`, and other commands work correctly when CWD is a worktree. ~15 min. (CC v2.1.116)
+- **Per-model context window map**: Verify `ContextTracker` uses correct context windows per model (especially Opus 4.7 = 1M, not 200K). Wrong values cause premature auto-compaction. ~15 min. (CC v2.1.117)
+- **Default effort `high` for Opus/Sonnet 4.6**: Update default effort level to `high` for Opus 4.6 and Sonnet 4.6 models, matching CC behavior. ~5 min. (CC v2.1.117)
+- **Bedrock Opus 4.7 thinking-disabled fix**: Verify BedrockProvider handles inference profiles backed by Opus 4.7 when thinking is disabled (CC saw 400 errors). ~15 min. (CC v2.1.117)
+- **`/resume` stale session summarization**: Offer to summarize large/stale sessions before re-reading, instead of loading full 40MB+ message history. ~30 min. (CC v2.1.117)
 
-### Nice to Have — Moderate Value (22 items)
+### Nice to Have — Moderate Value (23 items)
 
 - **Session ID header**: Add `X-Chet-Session-Id` to API requests for proxy aggregation.
 - **Conditional hook `if` field**: Filter hooks by tool pattern to reduce process spawning.
@@ -225,6 +230,7 @@ Bugs found and fixed:
 - **Piped compound command denies**: Deny rules must win across all pipe subcommands.
 - **Dangerous-path guard**: Defense-in-depth block for `rm -rf /`, `rm -rf $HOME`, etc. even when permission rules permit Bash. (CC v2.1.116)
 - **Indic/wide-char column alignment**: Audit terminal renderer for multi-width Unicode (Devanagari, CJK) column alignment. (CC v2.1.116)
+- **Line editor undo audit**: Check `Ctrl+_` undo for skip/no-op bugs after typing (CC had similar issue). (CC v2.1.117)
 
 ### Skip / Extremely Niche (39 items)
 
