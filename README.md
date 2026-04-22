@@ -162,7 +162,7 @@ Create `~/.chet/config.toml`:
 
 [api]
 model = "claude-sonnet-4-5-20250929"
-max_tokens = 65536
+max_tokens = 64000
 # api_key = "sk-ant-..."    # prefer ANTHROPIC_API_KEY env var
 # auth_token = "token-..."  # prefer ANTHROPIC_AUTH_TOKEN env var (Bearer auth)
 # thinking_budget = 10000  # enable extended thinking
@@ -233,7 +233,7 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (482 tests — runs fast, no API key needed)
+# Unit tests (494 tests — runs fast, no API key needed)
 # 34 integration tests (ignored by default, run with --ignored)
 cargo test --workspace
 

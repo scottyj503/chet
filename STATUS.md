@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 11 COMPLETE — v0.3.1 shipped
+## Current Phase: Phase 11 COMPLETE — v0.3.2 shipped
 
 ## Phase Status
 
@@ -120,7 +120,7 @@ Add AWS Bedrock and Google Vertex AI support, building on the existing `Provider
 
 ## Test Summary
 
-- 488 unit tests passing (31 api, 19 config, 16 core/agent+subagent+worktree, 59 tools, 55 permissions, 58 session, 37 types, 153 terminal, 15 cli, 29 mcp, 12 bedrock, 4 vertex)
+- 494 unit tests passing (31 api, 25 config, 16 core/agent+subagent+worktree, 59 tools, 55 permissions, 58 session, 37 types, 153 terminal, 15 cli, 29 mcp, 12 bedrock, 4 vertex)
   - 10 agent integration tests (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state + 1 parallel-failure-isolation + 1 mixed-parallel-sequential)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
@@ -171,12 +171,12 @@ Bugs found and fixed:
 
 ## Post-v1
 
-### Completed (59 items)
+### Completed (61 items)
 
 <details>
 <summary>All completed Post-v1 items (click to expand)</summary>
 
-- ~~**Worktree isolation**~~, ~~**Non-interactive mode optimization**~~, ~~**ConfigChange hook event**~~, ~~**File-not-found path suggestions**~~, ~~**Enhanced permission restriction reasons**~~, ~~**Status line**~~, ~~**Memory management**~~, ~~**`chet agents` CLI command**~~, ~~**MCP reconnect resilience**~~, ~~**Session flush on disconnect**~~, ~~**Auto-memory**~~, ~~**Smarter bash permission prefixes**~~, ~~**Config file corruption prevention**~~, ~~**Tool result disk persistence**~~, ~~**`/copy` command**~~, ~~**`/model` human-readable labels**~~, ~~**HTTP hooks**~~, ~~**Effort levels**~~, ~~**Agent name in terminal title**~~, ~~**`InstructionsLoaded` hook event**~~, ~~**Concise subagent reports**~~, ~~**`/resume` shows most recent prompt**~~, ~~**Skip compaction preamble recap**~~, ~~**Compaction preserves images for cache reuse**~~, ~~**Skip skill re-injection on `/resume`**~~ (N/A), ~~**MCP binary content to disk**~~, ~~**Increased output token limits**~~, ~~**`/effort auto`**~~, ~~**`-n` / `--name` session flag**~~, ~~**`/plan` with description**~~, ~~**Memory file timestamps**~~, ~~**`PostCompact` hook event**~~, ~~**`/context` actionable suggestions**~~, ~~**Parallel tool failure isolation**~~, ~~**Strip progress messages during compaction**~~, ~~**Background bash output kill limit**~~, ~~**Session auto-naming from plan content**~~, ~~**`allowRead` sandbox setting**~~, ~~**`ExitWorktree` tool**~~, ~~**Auto-compaction circuit breaker**~~, ~~**`autoMemoryDirectory` setting**~~, ~~**Token estimation audit**~~, ~~**`StopFailure` hook event**~~, ~~**MCP deny rule enforcement**~~, ~~**Worktree hooks/config loading**~~, ~~**Custom model option**~~, ~~**Agent frontmatter**~~, ~~**MCP elicitation**~~ (N/A — no servers use it), ~~**`--resume` filter print-mode sessions**~~ (deferred), ~~**VCS directory exclusions**~~, ~~**xhigh effort level**~~, ~~**`ANTHROPIC_AUTH_TOKEN` Bearer auth**~~, and more.
+- ~~**Worktree isolation**~~, ~~**Non-interactive mode optimization**~~, ~~**ConfigChange hook event**~~, ~~**File-not-found path suggestions**~~, ~~**Enhanced permission restriction reasons**~~, ~~**Status line**~~, ~~**Memory management**~~, ~~**`chet agents` CLI command**~~, ~~**MCP reconnect resilience**~~, ~~**Session flush on disconnect**~~, ~~**Auto-memory**~~, ~~**Smarter bash permission prefixes**~~, ~~**Config file corruption prevention**~~, ~~**Tool result disk persistence**~~, ~~**`/copy` command**~~, ~~**`/model` human-readable labels**~~, ~~**HTTP hooks**~~, ~~**Effort levels**~~, ~~**Agent name in terminal title**~~, ~~**`InstructionsLoaded` hook event**~~, ~~**Concise subagent reports**~~, ~~**`/resume` shows most recent prompt**~~, ~~**Skip compaction preamble recap**~~, ~~**Compaction preserves images for cache reuse**~~, ~~**Skip skill re-injection on `/resume`**~~ (N/A), ~~**MCP binary content to disk**~~, ~~**Increased output token limits**~~, ~~**`/effort auto`**~~, ~~**`-n` / `--name` session flag**~~, ~~**`/plan` with description**~~, ~~**Memory file timestamps**~~, ~~**`PostCompact` hook event**~~, ~~**`/context` actionable suggestions**~~, ~~**Parallel tool failure isolation**~~, ~~**Strip progress messages during compaction**~~, ~~**Background bash output kill limit**~~, ~~**Session auto-naming from plan content**~~, ~~**`allowRead` sandbox setting**~~, ~~**`ExitWorktree` tool**~~, ~~**Auto-compaction circuit breaker**~~, ~~**`autoMemoryDirectory` setting**~~, ~~**Token estimation audit**~~, ~~**`StopFailure` hook event**~~, ~~**MCP deny rule enforcement**~~, ~~**Worktree hooks/config loading**~~, ~~**Custom model option**~~, ~~**Agent frontmatter**~~, ~~**MCP elicitation**~~ (N/A — no servers use it), ~~**`--resume` filter print-mode sessions**~~ (deferred), ~~**VCS directory exclusions**~~, ~~**xhigh effort level**~~, ~~**`ANTHROPIC_AUTH_TOKEN` Bearer auth**~~, ~~**Model-aware max_tokens clamping**~~, ~~**REPL screen clear on startup**~~, and more.
 
 </details>
 

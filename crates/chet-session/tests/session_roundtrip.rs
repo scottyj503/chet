@@ -231,8 +231,8 @@ async fn test_session_list_after_save() {
     assert_eq!(summary.total_output_tokens, 350);
     assert_eq!(summary.label.as_deref(), Some("Explore src directory"));
     assert!(
-        summary.preview.contains("What files"),
-        "preview should come from first user message: {:?}",
+        summary.preview.contains("Read src/main.rs"),
+        "preview should come from last user text message: {:?}",
         summary.preview
     );
 }

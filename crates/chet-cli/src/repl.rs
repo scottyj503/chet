@@ -109,6 +109,16 @@ pub(crate) async fn repl(ctx: ReplContext<'_>, startup: ReplStartup) -> Result<(
         "/plan",
     ])));
 
+    // Clear the screen before showing the banner (TTY only)
+    if stderr_is_tty {
+        let mut stderr = std::io::stderr();
+        let _ = crossterm::execute!(
+            stderr,
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+            crossterm::cursor::MoveTo(0, 0)
+        );
+    }
+
     let thinking_info = match (config.effort, config.thinking_budget) {
         (_, Some(budget)) => format!(", thinking: {budget} tokens"),
         (Some(effort), None) => format!(", effort: {effort}"),

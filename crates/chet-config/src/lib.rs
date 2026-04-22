@@ -14,8 +14,17 @@ pub const DEFAULT_API_BASE_URL: &str = "https://api.anthropic.com";
 /// The default model to use.
 pub const DEFAULT_MODEL: &str = "claude-sonnet-4-5-20250929";
 
-/// The default max tokens for a response.
-pub const DEFAULT_MAX_TOKENS: u32 = 65536;
+/// The default max tokens for a response (before model-specific clamping).
+pub const DEFAULT_MAX_TOKENS: u32 = 128_000;
+
+/// Returns the maximum output tokens the model supports.
+pub fn model_max_output_tokens(model: &str) -> u32 {
+    if model.contains("opus") {
+        128_000
+    } else {
+        64_000
+    }
+}
 
 /// Resolved configuration for a Chet session.
 #[derive(Debug, Clone)]
@@ -184,11 +193,12 @@ impl ChetConfig {
             .cloned()
             .unwrap_or(raw_model);
 
-        // Resolve max tokens
+        // Resolve max tokens, clamped to what the model actually supports
         let max_tokens = overrides
             .max_tokens
             .or(global_settings.api.max_tokens)
-            .unwrap_or(DEFAULT_MAX_TOKENS);
+            .unwrap_or(DEFAULT_MAX_TOKENS)
+            .min(model_max_output_tokens(&model));
 
         // Resolve API base URL
         let api_base_url = std::env::var("ANTHROPIC_API_BASE_URL")
@@ -443,8 +453,18 @@ model = "claude-opus-4-6"
     }
 
     #[test]
-    fn test_default_max_tokens_is_64k() {
-        assert_eq!(DEFAULT_MAX_TOKENS, 65536);
+    fn test_default_max_tokens_is_128k() {
+        assert_eq!(DEFAULT_MAX_TOKENS, 128_000);
+    }
+
+    #[test]
+    fn test_model_max_output_tokens() {
+        assert_eq!(model_max_output_tokens("claude-opus-4-6"), 128_000);
+        assert_eq!(
+            model_max_output_tokens("claude-sonnet-4-5-20250929"),
+            64_000
+        );
+        assert_eq!(model_max_output_tokens("claude-haiku-4-5-20251001"), 64_000);
     }
 
     #[test]
@@ -557,5 +577,62 @@ model = "claude-opus-4-6"
 "#;
         let settings: SettingsFile = toml::from_str(toml_str).unwrap();
         assert!(settings.models.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_clamps_max_tokens_for_sonnet() {
+        let config = ChetConfig::load(CliOverrides {
+            api_key: Some("test-key".into()),
+            model: Some("claude-sonnet-4-5-20250929".into()),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(config.max_tokens, 64_000);
+    }
+
+    #[test]
+    fn test_resolve_clamps_max_tokens_for_haiku() {
+        let config = ChetConfig::load(CliOverrides {
+            api_key: Some("test-key".into()),
+            model: Some("claude-haiku-4-5-20251001".into()),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(config.max_tokens, 64_000);
+    }
+
+    #[test]
+    fn test_resolve_allows_full_max_tokens_for_opus() {
+        let config = ChetConfig::load(CliOverrides {
+            api_key: Some("test-key".into()),
+            model: Some("claude-opus-4-6".into()),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(config.max_tokens, 128_000);
+    }
+
+    #[test]
+    fn test_resolve_clamps_explicit_override_to_model_limit() {
+        let config = ChetConfig::load(CliOverrides {
+            api_key: Some("test-key".into()),
+            model: Some("claude-sonnet-4-5-20250929".into()),
+            max_tokens: Some(100_000),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(config.max_tokens, 64_000);
+    }
+
+    #[test]
+    fn test_resolve_respects_explicit_override_below_model_limit() {
+        let config = ChetConfig::load(CliOverrides {
+            api_key: Some("test-key".into()),
+            model: Some("claude-sonnet-4-5-20250929".into()),
+            max_tokens: Some(4_096),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(config.max_tokens, 4_096);
     }
 }
