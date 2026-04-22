@@ -42,6 +42,10 @@ struct Cli {
     #[arg(long)]
     api_key: Option<String>,
 
+    /// Auth token for Bearer auth (overrides ANTHROPIC_AUTH_TOKEN)
+    #[arg(long)]
+    auth_token: Option<String>,
+
     /// Enable extended thinking with the given token budget
     #[arg(long)]
     thinking_budget: Option<u32>,
@@ -128,6 +132,7 @@ async fn main() -> Result<()> {
     let config = ChetConfig::load_with_project_dir(
         CliOverrides {
             api_key: cli.api_key.clone(),
+            auth_token: cli.auth_token.clone(),
             model: cli.model.clone(),
             max_tokens: cli.max_tokens,
             thinking_budget: cli.thinking_budget,
@@ -321,7 +326,7 @@ async fn create_provider(cli: &Cli, config: &ChetConfig) -> Result<Arc<dyn Provi
 
     match provider_name.as_str() {
         "anthropic" => {
-            let provider = AnthropicProvider::new(&config.api_key, &config.api_base_url)
+            let provider = AnthropicProvider::new(config.credential.clone(), &config.api_base_url)
                 .context("Failed to create Anthropic provider")?
                 .with_retry_config(config.retry.clone());
             Ok(Arc::new(provider))

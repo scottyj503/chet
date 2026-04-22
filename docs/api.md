@@ -15,10 +15,12 @@ Default base URL: `https://api.anthropic.com`
 | Header | Value |
 |--------|-------|
 | `Content-Type` | `application/json` |
-| `x-api-key` | Your Anthropic API key |
+| `x-api-key` | Your Anthropic API key (when using `ANTHROPIC_API_KEY`) |
+| `Authorization` | `Bearer <token>` (when using `ANTHROPIC_AUTH_TOKEN`) |
 | `anthropic-version` | `2023-06-01` |
 
-No beta headers are sent.
+Exactly one of `x-api-key` or `Authorization: Bearer` is sent per request, never both.
+If `ANTHROPIC_AUTH_TOKEN` is set, it takes precedence over `ANTHROPIC_API_KEY`.
 
 ## Request Body
 

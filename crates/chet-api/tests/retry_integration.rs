@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chet_api::{ApiClient, MessageStream, RetryConfig};
-use chet_types::StreamEvent;
+use chet_types::{AuthCredential, StreamEvent};
 use futures_util::StreamExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -132,7 +132,7 @@ async fn start_test_server(responses: Vec<String>) -> (String, Arc<AtomicUsize>)
 
 /// Build an ApiClient with fast retry config pointing at the test server.
 fn make_client(base_url: &str) -> ApiClient {
-    ApiClient::new("test-key", base_url)
+    ApiClient::new(AuthCredential::ApiKey("test-key".into()), base_url)
         .unwrap()
         .with_retry_config(RetryConfig {
             max_retries: 2,

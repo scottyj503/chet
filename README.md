@@ -70,7 +70,7 @@ cargo install --path crates/chet-cli
 ## Quick Start
 
 ```bash
-# Set your API key
+# Set your API key (or use ANTHROPIC_AUTH_TOKEN for Bearer auth)
 export ANTHROPIC_API_KEY=sk-ant-...
 
 # Interactive mode
@@ -90,6 +90,7 @@ Options:
       --model <MODEL>                  Model to use (default: claude-sonnet-4-5-20250929)
       --max-tokens <MAX_TOKENS>        Maximum tokens in the response
       --api-key <API_KEY>              API key (overrides ANTHROPIC_API_KEY)
+      --auth-token <TOKEN>             Auth token for Bearer auth (overrides ANTHROPIC_AUTH_TOKEN)
       --resume <SESSION_ID>            Resume a previous session by ID or prefix
       --thinking-budget <TOKENS>       Enable extended thinking with token budget
       --effort <LEVEL>                 Set effort level (low, medium, high)
@@ -146,7 +147,8 @@ CHET_USE_VERTEX=1 GOOGLE_CLOUD_PROJECT=my-proj chet
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `ANTHROPIC_API_KEY` | Your Anthropic API key | Yes (unless in config or `--api-key`) |
+| `ANTHROPIC_API_KEY` | Your Anthropic API key | Yes (unless auth token or config) |
+| `ANTHROPIC_AUTH_TOKEN` | Bearer token for LLM gateways/proxies (takes precedence over API key) | No |
 | `CHET_MODEL` | Override default model | No |
 | `ANTHROPIC_API_BASE_URL` | Custom API endpoint | No |
 | `CHET_CONFIG_DIR` | Override config directory (default: `~/.chet/`) | No |
@@ -161,7 +163,8 @@ Create `~/.chet/config.toml`:
 [api]
 model = "claude-sonnet-4-5-20250929"
 max_tokens = 65536
-# api_key = "sk-ant-..."  # prefer ANTHROPIC_API_KEY env var
+# api_key = "sk-ant-..."    # prefer ANTHROPIC_API_KEY env var
+# auth_token = "token-..."  # prefer ANTHROPIC_AUTH_TOKEN env var (Bearer auth)
 # thinking_budget = 10000  # enable extended thinking
 # effort = "medium"        # effort level: low (1024), medium (8192), high (32768)
 

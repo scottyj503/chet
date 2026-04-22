@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use chet_types::{ApiError, CreateMessageRequest};
+use chet_types::{ApiError, AuthCredential, CreateMessageRequest};
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 
 use crate::retry::{RetryConfig, calculate_delay, is_retryable};
@@ -15,21 +15,21 @@ const ANTHROPIC_VERSION: &str = "2023-06-01";
 #[derive(Clone)]
 pub struct ApiClient {
     http: reqwest::Client,
-    api_key: String,
+    credential: AuthCredential,
     base_url: String,
     retry_config: RetryConfig,
 }
 
 impl ApiClient {
     /// Create a new API client.
-    pub fn new(api_key: impl Into<String>, base_url: impl Into<String>) -> Result<Self, ApiError> {
+    pub fn new(credential: AuthCredential, base_url: impl Into<String>) -> Result<Self, ApiError> {
         let http = reqwest::Client::builder()
             .build()
             .map_err(|e| ApiError::Network(e.to_string()))?;
 
         Ok(Self {
             http,
-            api_key: api_key.into(),
+            credential,
             base_url: base_url.into(),
             retry_config: RetryConfig::default(),
         })
@@ -41,25 +41,43 @@ impl ApiClient {
         self
     }
 
+    fn build_headers(&self) -> Result<HeaderMap, ApiError> {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        match &self.credential {
+            AuthCredential::ApiKey(key) => {
+                headers.insert(
+                    "x-api-key",
+                    HeaderValue::from_str(key).map_err(|_| ApiError::Auth {
+                        message: "Invalid API key format".into(),
+                    })?,
+                );
+            }
+            AuthCredential::AuthToken(token) => {
+                headers.insert(
+                    "Authorization",
+                    HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| {
+                        ApiError::Auth {
+                            message: "Invalid auth token format".into(),
+                        }
+                    })?,
+                );
+            }
+        }
+        headers.insert(
+            "anthropic-version",
+            HeaderValue::from_static(ANTHROPIC_VERSION),
+        );
+        Ok(headers)
+    }
+
     /// Send a streaming Messages API request and return a stream of events.
     pub async fn create_message_stream(
         &self,
         request: &CreateMessageRequest,
     ) -> Result<MessageStream, ApiError> {
         let url = format!("{}/v1/messages", self.base_url);
-
-        let mut headers = HeaderMap::new();
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        headers.insert(
-            "x-api-key",
-            HeaderValue::from_str(&self.api_key).map_err(|_| ApiError::Auth {
-                message: "Invalid API key format".into(),
-            })?,
-        );
-        headers.insert(
-            "anthropic-version",
-            HeaderValue::from_static(ANTHROPIC_VERSION),
-        );
+        let headers = self.build_headers()?;
 
         let body = serde_json::to_string(request).map_err(|e| ApiError::BadRequest {
             message: format!("Failed to serialize request: {e}"),
@@ -234,5 +252,31 @@ mod tests {
     fn classify_error_401() {
         let err = classify_error(401, r#"{"error":{"message":"invalid key"}}"#, None);
         assert!(matches!(err, ApiError::Auth { .. }));
+    }
+
+    #[test]
+    fn build_headers_api_key() {
+        let client = ApiClient::new(
+            AuthCredential::ApiKey("sk-test-123".into()),
+            "https://api.example.com",
+        )
+        .unwrap();
+        let headers = client.build_headers().unwrap();
+        assert_eq!(headers.get("x-api-key").unwrap(), "sk-test-123");
+        assert!(headers.get("Authorization").is_none());
+        assert!(headers.get("anthropic-version").is_some());
+    }
+
+    #[test]
+    fn build_headers_auth_token() {
+        let client = ApiClient::new(
+            AuthCredential::AuthToken("token-abc".into()),
+            "https://api.example.com",
+        )
+        .unwrap();
+        let headers = client.build_headers().unwrap();
+        assert_eq!(headers.get("Authorization").unwrap(), "Bearer token-abc");
+        assert!(headers.get("x-api-key").is_none());
+        assert!(headers.get("anthropic-version").is_some());
     }
 }

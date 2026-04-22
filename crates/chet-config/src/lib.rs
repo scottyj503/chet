@@ -4,7 +4,7 @@
 //! env vars > project > global > defaults
 
 use chet_api::RetryConfig;
-use chet_types::Effort;
+use chet_types::{AuthCredential, Effort};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -20,7 +20,7 @@ pub const DEFAULT_MAX_TOKENS: u32 = 65536;
 /// Resolved configuration for a Chet session.
 #[derive(Debug, Clone)]
 pub struct ChetConfig {
-    pub api_key: String,
+    pub credential: AuthCredential,
     pub model: String,
     pub max_tokens: u32,
     pub api_base_url: String,
@@ -82,6 +82,7 @@ pub struct PermissionsSettings {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ApiSettings {
     pub api_key: Option<String>,
+    pub auth_token: Option<String>,
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
     pub base_url: Option<String>,
@@ -103,6 +104,7 @@ pub struct RetrySettings {
 #[derive(Debug, Clone, Default)]
 pub struct CliOverrides {
     pub api_key: Option<String>,
+    pub auth_token: Option<String>,
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
     pub thinking_budget: Option<u32>,
@@ -136,13 +138,38 @@ impl ChetConfig {
         let project_settings =
             project_dir.map(|dir| load_settings_file(&dir.join(".chet").join("config.toml")));
 
-        // Resolve API key: CLI > env > config file
-        let api_key = overrides
-            .api_key
-            .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
-            .or(global_settings.api.api_key)
+        // Resolve auth credential: auth_token takes precedence over api_key at each tier.
+        let credential = overrides
+            .auth_token
+            .map(AuthCredential::AuthToken)
+            .or_else(|| overrides.api_key.map(AuthCredential::ApiKey))
+            .or_else(|| {
+                std::env::var("ANTHROPIC_AUTH_TOKEN")
+                    .ok()
+                    .map(AuthCredential::AuthToken)
+            })
+            .or_else(|| {
+                std::env::var("ANTHROPIC_API_KEY")
+                    .ok()
+                    .map(AuthCredential::ApiKey)
+            })
+            .or_else(|| {
+                global_settings
+                    .api
+                    .auth_token
+                    .clone()
+                    .map(AuthCredential::AuthToken)
+            })
+            .or_else(|| {
+                global_settings
+                    .api
+                    .api_key
+                    .clone()
+                    .map(AuthCredential::ApiKey)
+            })
             .ok_or_else(|| chet_types::ConfigError::MissingKey {
-                key: "api_key (set ANTHROPIC_API_KEY or add to ~/.chet/config.toml)".into(),
+                key: "api credential (set ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or add to ~/.chet/config.toml)"
+                    .into(),
             })?;
 
         // Resolve model (with alias expansion from [models] section)
@@ -212,7 +239,7 @@ impl ChetConfig {
         }
 
         Ok(ChetConfig {
-            api_key,
+            credential,
             model,
             max_tokens,
             api_base_url,
@@ -498,6 +525,28 @@ smart = "claude-opus-4-6"
         let settings: SettingsFile = toml::from_str(toml_str).unwrap();
         assert_eq!(settings.models.len(), 2);
         assert_eq!(settings.models["fast"], "claude-haiku-4-5-20251001");
+    }
+
+    #[test]
+    fn test_settings_with_auth_token() {
+        let toml_str = r#"
+[api]
+auth_token = "my-bearer-token"
+model = "claude-opus-4-6"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(settings.api.auth_token.as_deref(), Some("my-bearer-token"));
+        assert!(settings.api.api_key.is_none());
+    }
+
+    #[test]
+    fn test_settings_auth_token_defaults_to_none() {
+        let toml_str = r#"
+[api]
+model = "claude-opus-4-6"
+"#;
+        let settings: SettingsFile = toml::from_str(toml_str).unwrap();
+        assert!(settings.api.auth_token.is_none());
     }
 
     #[test]

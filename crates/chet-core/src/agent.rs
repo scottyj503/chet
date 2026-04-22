@@ -600,9 +600,16 @@ mod tests {
     use super::*;
     use crate::util::truncate_for_display;
     use chet_api::AnthropicProvider;
+    use chet_types::AuthCredential;
 
     fn make_provider() -> Arc<dyn Provider> {
-        Arc::new(AnthropicProvider::new("test-key", "https://api.example.com").unwrap())
+        Arc::new(
+            AnthropicProvider::new(
+                AuthCredential::ApiKey("test-key".into()),
+                "https://api.example.com",
+            )
+            .unwrap(),
+        )
     }
 
     #[test]

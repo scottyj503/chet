@@ -3,7 +3,7 @@
 use crate::client::ApiClient;
 use crate::retry::RetryConfig;
 use chet_types::provider::{EventStream, Provider};
-use chet_types::{ApiError, CreateMessageRequest};
+use chet_types::{ApiError, AuthCredential, CreateMessageRequest};
 use std::future::Future;
 use std::pin::Pin;
 
@@ -17,9 +17,9 @@ pub struct AnthropicProvider {
 }
 
 impl AnthropicProvider {
-    pub fn new(api_key: impl Into<String>, base_url: impl Into<String>) -> Result<Self, ApiError> {
+    pub fn new(credential: AuthCredential, base_url: impl Into<String>) -> Result<Self, ApiError> {
         Ok(Self {
-            client: ApiClient::new(api_key, base_url)?,
+            client: ApiClient::new(credential, base_url)?,
         })
     }
 
@@ -51,24 +51,34 @@ mod tests {
 
     #[test]
     fn anthropic_provider_new() {
-        let provider = AnthropicProvider::new("test-key", "https://api.example.com");
+        let provider = AnthropicProvider::new(
+            AuthCredential::ApiKey("test-key".into()),
+            "https://api.example.com",
+        );
         assert!(provider.is_ok());
     }
 
     #[test]
     fn anthropic_provider_name() {
-        let provider = AnthropicProvider::new("test-key", "https://api.example.com").unwrap();
+        let provider = AnthropicProvider::new(
+            AuthCredential::ApiKey("test-key".into()),
+            "https://api.example.com",
+        )
+        .unwrap();
         assert_eq!(provider.name(), "anthropic");
     }
 
     #[test]
     fn anthropic_provider_with_retry() {
-        let provider = AnthropicProvider::new("test-key", "https://api.example.com")
-            .unwrap()
-            .with_retry_config(RetryConfig {
-                max_retries: 5,
-                ..RetryConfig::default()
-            });
+        let provider = AnthropicProvider::new(
+            AuthCredential::ApiKey("test-key".into()),
+            "https://api.example.com",
+        )
+        .unwrap()
+        .with_retry_config(RetryConfig {
+            max_retries: 5,
+            ..RetryConfig::default()
+        });
         assert_eq!(provider.name(), "anthropic");
     }
 }
