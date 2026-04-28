@@ -1,6 +1,6 @@
 # Chet — Status Tracker
 
-## Current Phase: Phase 11 COMPLETE — v0.3.4 shipped
+## Current Phase: Phase 11 COMPLETE — v0.3.5 shipped
 
 ## Phase Status
 
