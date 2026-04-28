@@ -83,6 +83,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f0e0fee31ef5ed1ba1316088939cea399010ed7731dba877ed44aeb407a75ea"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -576,7 +582,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chet"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "chet-api",
@@ -603,7 +609,7 @@ dependencies = [
 
 [[package]]
 name = "chet-api"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "bytes",
  "chet-types",
@@ -621,7 +627,7 @@ dependencies = [
 
 [[package]]
 name = "chet-bedrock"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -640,7 +646,7 @@ dependencies = [
 
 [[package]]
 name = "chet-config"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chet-api",
  "chet-mcp",
@@ -656,7 +662,7 @@ dependencies = [
 
 [[package]]
 name = "chet-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chet-api",
  "chet-permissions",
@@ -675,7 +681,7 @@ dependencies = [
 
 [[package]]
 name = "chet-lsp"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chet-types",
  "serde",
@@ -687,7 +693,7 @@ dependencies = [
 
 [[package]]
 name = "chet-mcp"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chet-types",
  "serde",
@@ -701,7 +707,7 @@ dependencies = [
 
 [[package]]
 name = "chet-permissions"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chet-types",
  "globset",
@@ -715,7 +721,7 @@ dependencies = [
 
 [[package]]
 name = "chet-plugins"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chet-types",
  "serde",
@@ -728,7 +734,7 @@ dependencies = [
 
 [[package]]
 name = "chet-sandbox"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chet-types",
  "thiserror 2.0.18",
@@ -738,7 +744,7 @@ dependencies = [
 
 [[package]]
 name = "chet-session"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chet-types",
  "chrono",
@@ -753,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "chet-terminal"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chet-types",
  "crossterm",
@@ -762,11 +768,12 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "vt100",
 ]
 
 [[package]]
 name = "chet-tools"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chet-session",
  "chet-types",
@@ -785,7 +792,7 @@ dependencies = [
 
 [[package]]
 name = "chet-types"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "futures-core",
  "serde",
@@ -796,7 +803,7 @@ dependencies = [
 
 [[package]]
 name = "chet-vertex"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chet-types",
  "futures-util",
@@ -2816,6 +2823,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
+name = "unicode-width"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
+
+[[package]]
 name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2886,6 +2899,39 @@ name = "vsimd"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
+
+[[package]]
+name = "vt100"
+version = "0.15.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84cd863bf0db7e392ba3bd04994be3473491b31e66340672af5d11943c6274de"
+dependencies = [
+ "itoa",
+ "log",
+ "unicode-width",
+ "vte",
+]
+
+[[package]]
+name = "vte"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5022b5fbf9407086c180e9557be968742d839e68346af7792b8592489732197"
+dependencies = [
+ "arrayvec",
+ "utf8parse",
+ "vte_generate_state_changes",
+]
+
+[[package]]
+name = "vte_generate_state_changes"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e369bee1b05d510a7b4ed645f5faa90619e05437111783ea5848f28d97d3c2e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+]
 
 [[package]]
 name = "walkdir"

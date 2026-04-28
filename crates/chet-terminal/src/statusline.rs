@@ -44,6 +44,10 @@ pub struct StatusLine {
     terminal_height: u16,
     terminal_width: u16,
     installed: bool,
+    writer: Box<dyn Write + Send>,
+    /// Tracked cursor row — used to restore position after DECSTBM,
+    /// which homes the cursor on many terminals and clobbers save buffers.
+    cursor_row: u16,
 }
 
 impl StatusLine {
@@ -55,7 +59,31 @@ impl StatusLine {
             terminal_width: w,
             terminal_height: h,
             installed: false,
+            writer: Box::new(std::io::stderr()),
+            cursor_row: 0,
         }
+    }
+
+    /// Create a status line with explicit dimensions and writer (for testing).
+    pub fn new_with_writer(
+        data: StatusLineData,
+        width: u16,
+        height: u16,
+        writer: Box<dyn Write + Send>,
+    ) -> Self {
+        Self {
+            data,
+            terminal_width: width,
+            terminal_height: height,
+            installed: false,
+            writer,
+            cursor_row: 0,
+        }
+    }
+
+    /// Set the tracked cursor row (call before install to sync with actual position).
+    pub fn set_cursor_row(&mut self, row: u16) {
+        self.cursor_row = row;
     }
 
     /// Install the scroll region and draw the initial status line.
@@ -91,12 +119,10 @@ impl StatusLine {
         if !self.installed {
             return;
         }
-        let mut stderr = std::io::stderr();
-        // Reset scroll region to full terminal
-        let _ = write!(stderr, "\x1b[r");
-        // Clear the bottom row
-        let _ = write!(stderr, "\x1b7\x1b[{};1H\x1b[2K\x1b8", self.terminal_height);
-        let _ = stderr.flush();
+        // Reset scroll region, restore cursor via explicit CUP, clear below
+        let row = self.cursor_row;
+        let _ = write!(self.writer, "\x1b[r\x1b[{};1H\x1b[J", row + 1);
+        let _ = self.writer.flush();
     }
 
     /// Resume the status line after the line editor returns.
@@ -124,9 +150,10 @@ impl StatusLine {
             return;
         }
         if height < 3 {
-            // Too small — reset scroll region
-            let _ = write!(std::io::stderr(), "\x1b[r");
-            let _ = std::io::stderr().flush();
+            // Too small — reset scroll region, restore cursor
+            let row = self.cursor_row;
+            let _ = write!(self.writer, "\x1b[r\x1b[{};1H", row + 1);
+            let _ = self.writer.flush();
             return;
         }
         self.set_scroll_region();
@@ -139,32 +166,42 @@ impl StatusLine {
             return;
         }
         self.installed = false;
-        let mut stderr = std::io::stderr();
-        // Reset scroll region
-        let _ = write!(stderr, "\x1b[r");
+        // Reset scroll region, restore cursor
+        let row = self.cursor_row;
+        let _ = write!(self.writer, "\x1b[r\x1b[{};1H", row + 1);
         // Clear the bottom row
-        let _ = write!(stderr, "\x1b7\x1b[{};1H\x1b[2K\x1b8", self.terminal_height);
-        let _ = stderr.flush();
+        let _ = write!(
+            self.writer,
+            "\x1b7\x1b[{};1H\x1b[2K\x1b8",
+            self.terminal_height
+        );
+        let _ = self.writer.flush();
     }
 
     /// Set DECSTBM scroll region to rows 1..height-1.
-    fn set_scroll_region(&self) {
-        let mut stderr = std::io::stderr();
-        let _ = write!(stderr, "\x1b[1;{}r", self.terminal_height - 1);
-        let _ = stderr.flush();
+    /// Uses explicit CUP to restore cursor position because DECSTBM homes the
+    /// cursor on many terminals and clobbers both DEC and SCO save buffers.
+    fn set_scroll_region(&mut self) {
+        let row = self.cursor_row;
+        let _ = write!(
+            self.writer,
+            "\x1b[1;{}r\x1b[{};1H",
+            self.terminal_height - 1,
+            row + 1
+        );
+        let _ = self.writer.flush();
     }
 
     /// Draw the status line on the bottom row.
     fn draw(&mut self) {
         let rendered = self.render();
-        let mut stderr = std::io::stderr();
         // Save cursor, move to bottom row, clear line, write, restore cursor
         let _ = write!(
-            stderr,
+            self.writer,
             "\x1b7\x1b[{};1H\x1b[2K{}\x1b8",
             self.terminal_height, rendered
         );
-        let _ = stderr.flush();
+        let _ = self.writer.flush();
     }
 
     /// Render the status line content with dim+reverse styling.
@@ -313,6 +350,197 @@ fn truncate_to_width(s: &str, max_width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+
+    // -- Byte capture writer for feeding to vt100 emulator --
+
+    #[derive(Clone)]
+    struct CaptureWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for CaptureWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn test_data() -> StatusLineData {
+        StatusLineData {
+            model: "test".to_string(),
+            ..StatusLineData::default()
+        }
+    }
+
+    /// Feed captured bytes into a real vt100 emulator and return cursor position (row, col).
+    fn cursor_after(bytes: &[u8], rows: u16, cols: u16) -> (u16, u16) {
+        let mut parser = vt100::Parser::new(rows, cols, 0);
+        parser.process(bytes);
+        parser.screen().cursor_position()
+    }
+
+    // -- Cursor preservation tests using vt100 terminal emulator --
+
+    #[test]
+    fn install_suspend_preserves_cursor() {
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let writer = CaptureWriter(buf.clone());
+
+        let mut sl = StatusLine::new_with_writer(test_data(), 80, 24, Box::new(writer.clone()));
+
+        // Simulate banner (use \r\n since vt100 needs CR for column reset)
+        let _ = write!(writer.clone(), "chet v0.1 (model: test)\r\n");
+        let _ = write!(writer.clone(), "Type your message.\r\n\r\n");
+
+        let banner_pos = cursor_after(&buf.lock().unwrap(), 24, 80);
+        assert_eq!(banner_pos.0, 3, "cursor should be at row 3 after banner");
+
+        sl.set_cursor_row(3);
+        sl.install();
+        sl.suspend();
+
+        let (row, _) = cursor_after(&buf.lock().unwrap(), 24, 80);
+        assert_eq!(row, 3, "cursor row must be preserved after install+suspend");
+    }
+
+    #[test]
+    fn full_repl_cycle_preserves_cursor() {
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let writer = CaptureWriter(buf.clone());
+
+        let mut sl = StatusLine::new_with_writer(test_data(), 80, 24, Box::new(writer.clone()));
+
+        let _ = write!(writer.clone(), "banner line 1\r\nbanner line 2\r\n\r\n");
+        sl.set_cursor_row(3);
+        sl.install();
+        sl.suspend();
+
+        let (row, _) = cursor_after(&buf.lock().unwrap(), 24, 80);
+        assert_eq!(row, 3, "after first suspend");
+
+        // Simulate: user typed, cursor at row 4
+        let _ = write!(writer.clone(), "> hello\r\n");
+        sl.set_cursor_row(4);
+        sl.resume();
+
+        let (row, _) = cursor_after(&buf.lock().unwrap(), 24, 80);
+        assert_eq!(row, 4, "after resume");
+
+        // Simulate: agent output
+        let _ = write!(writer.clone(), "response line 1\r\nresponse line 2\r\n");
+        let actual_row = cursor_after(&buf.lock().unwrap(), 24, 80).0;
+        sl.set_cursor_row(actual_row);
+        sl.suspend();
+
+        let (row, _) = cursor_after(&buf.lock().unwrap(), 24, 80);
+        assert_eq!(row, actual_row, "after second suspend");
+    }
+
+    #[test]
+    fn teardown_preserves_cursor() {
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let writer = CaptureWriter(buf.clone());
+
+        let mut sl = StatusLine::new_with_writer(test_data(), 80, 24, Box::new(writer.clone()));
+
+        let _ = write!(writer.clone(), "\x1b[11;1H");
+        sl.set_cursor_row(10);
+        sl.install();
+        sl.teardown();
+
+        let (row, _) = cursor_after(&buf.lock().unwrap(), 24, 80);
+        assert_eq!(row, 10, "after teardown");
+    }
+
+    #[test]
+    fn resize_too_small_preserves_cursor() {
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let writer = CaptureWriter(buf.clone());
+
+        let mut sl = StatusLine::new_with_writer(test_data(), 80, 24, Box::new(writer.clone()));
+
+        let _ = write!(writer.clone(), "\x1b[9;1H");
+        sl.set_cursor_row(8);
+        sl.install();
+        sl.resize(80, 2);
+
+        let (row, _) = cursor_after(&buf.lock().unwrap(), 24, 80);
+        assert_eq!(row, 8, "after resize too small");
+    }
+
+    #[test]
+    fn banner_text_not_overwritten_by_prompt() {
+        // Matches actual REPL flow: install+suspend BEFORE banner,
+        // then banner prints at the cursor's natural position.
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let writer = CaptureWriter(buf.clone());
+
+        let mut sl = StatusLine::new_with_writer(test_data(), 80, 24, Box::new(writer.clone()));
+
+        // Install + suspend first (cursor starts at 0,0)
+        sl.install();
+        sl.suspend();
+
+        // Banner prints at current cursor position (row 0 after DECSTBM homing)
+        let _ = write!(writer.clone(), "chet v0.3.3 (model: test)\r\n");
+        let _ = write!(writer.clone(), "Type your message.\r\n\r\n");
+
+        // Prompt at current cursor position (row 3, after banner)
+        let _ = write!(writer.clone(), "> ");
+
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        parser.process(&buf.lock().unwrap());
+
+        let screen = parser.screen();
+        let row0 = screen.contents_between(0, 0, 1, 80);
+        let row3 = screen.contents_between(3, 0, 3, 80);
+
+        assert!(
+            row0.starts_with("chet v0.3.3"),
+            "banner on row 0 must not be overwritten, got: {:?}",
+            row0.trim()
+        );
+        assert!(
+            row3.starts_with("> "),
+            "prompt should be on row 3, got: {:?}",
+            row3.trim()
+        );
+    }
+
+    #[test]
+    fn suspend_clears_stale_content_below_cursor() {
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let writer = CaptureWriter(buf.clone());
+
+        let mut sl = StatusLine::new_with_writer(test_data(), 80, 24, Box::new(writer.clone()));
+
+        // Put some "old content" on rows 5-7
+        let _ = write!(writer.clone(), "\x1b[6;1Hold content line 1\r\n");
+        let _ = write!(writer.clone(), "old content line 2\r\n");
+        let _ = write!(writer.clone(), "old content line 3\r\n");
+
+        // Install status line, set cursor to row 3 (above old content)
+        sl.set_cursor_row(3);
+        sl.install();
+        sl.suspend();
+
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        parser.process(&buf.lock().unwrap());
+
+        let screen = parser.screen();
+        let row5 = screen.contents_between(5, 0, 6, 80);
+
+        assert!(
+            row5.trim().is_empty(),
+            "stale content below cursor should be cleared by suspend, got: {:?}",
+            row5.trim()
+        );
+    }
+
+    // -- Existing tests --
 
     #[test]
     fn shorten_model_name_sonnet() {
@@ -339,8 +567,6 @@ mod tests {
 
     #[test]
     fn shorten_model_name_no_minor() {
-        // "claude-opus-4" has no minor version digit after last dash
-        // "4" is a single digit, but there's no second dash to split major-minor
         assert_eq!(shorten_model_name("claude-opus-4"), "opus-4");
     }
 
@@ -448,12 +674,12 @@ mod tests {
             terminal_width: 120,
             terminal_height: 24,
             installed: false,
+            writer: Box::new(std::io::sink()),
+            cursor_row: 0,
         };
         let rendered = sl.render();
-        // Should contain dim+reverse prefix and reset suffix
         assert!(rendered.starts_with("\x1b[2;7m"));
         assert!(rendered.ends_with("\x1b[0m"));
-        // Content between escapes should be exactly 120 chars wide
         let inner = rendered
             .strip_prefix("\x1b[2;7m")
             .unwrap()
@@ -480,6 +706,8 @@ mod tests {
             terminal_width: 30,
             terminal_height: 24,
             installed: false,
+            writer: Box::new(std::io::sink()),
+            cursor_row: 0,
         };
         let rendered = sl.render();
         let inner = rendered

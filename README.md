@@ -233,8 +233,8 @@ Chet is a Cargo workspace with focused crates:
 # Check
 cargo check --workspace
 
-# Unit tests (494 tests — runs fast, no API key needed)
-# 34 integration tests (ignored by default, run with --ignored)
+# Unit tests (504 tests — runs fast, no API key needed)
+# 38 integration tests (ignored by default or in test dirs, run with --ignored)
 cargo test --workspace
 
 # Integration tests (6 SSE + 4 retry + 10 agent + 1 pipe mode + 3 MCP e2e + 3 session + 7 worktree — on-demand)

@@ -17,6 +17,14 @@ use crate::plan::{self, PlanApproval};
 use crate::prompts::{plan_system_prompt, print_usage, system_prompt, user_message};
 use crate::runner::{self, create_agent};
 
+fn resume_status_line(sl: &Arc<Mutex<StatusLine>>) {
+    let mut guard = sl.lock().unwrap();
+    if let Some(row) = chet_terminal::cursor_row() {
+        guard.set_cursor_row(row);
+    }
+    guard.resume();
+}
+
 pub(crate) async fn repl(ctx: ReplContext<'_>, startup: ReplStartup) -> Result<()> {
     let ReplContext {
         provider,
@@ -109,16 +117,6 @@ pub(crate) async fn repl(ctx: ReplContext<'_>, startup: ReplStartup) -> Result<(
         "/plan",
     ])));
 
-    // Clear the screen before showing the banner (TTY only)
-    if stderr_is_tty {
-        let mut stderr = std::io::stderr();
-        let _ = crossterm::execute!(
-            stderr,
-            crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
-            crossterm::cursor::MoveTo(0, 0)
-        );
-    }
-
     let thinking_info = match (config.effort, config.thinking_budget) {
         (_, Some(budget)) => format!(", thinking: {budget} tokens"),
         (Some(effort), None) => format!(", effort: {effort}"),
@@ -131,20 +129,6 @@ pub(crate) async fn repl(ctx: ReplContext<'_>, startup: ReplStartup) -> Result<(
         }
         _ => String::new(),
     };
-    eprintln!(
-        "chet v{} (model: {}{}{}, session: {})",
-        env!("CARGO_PKG_VERSION"),
-        config.model,
-        thinking_info,
-        mcp_info,
-        session.short_id()
-    );
-    eprintln!("Type your message. Press Ctrl+D to exit.\n");
-
-    // Set terminal title (TTY only)
-    if stderr_is_tty {
-        set_terminal_title(&format!("chet — {}", session.short_id()));
-    }
 
     // Create status line (TTY only)
     let status_line: Option<Arc<Mutex<StatusLine>>> = if stderr_is_tty {
@@ -166,21 +150,41 @@ pub(crate) async fn repl(ctx: ReplContext<'_>, startup: ReplStartup) -> Result<(
         };
         let mut sl = StatusLine::new(data);
         sl.install();
+        sl.suspend();
         Some(Arc::new(Mutex::new(sl)))
     } else {
         None
     };
 
+    // Print banner AFTER status line install+suspend so cursor position is stable
+    eprintln!(
+        "chet v{} (model: {}{}{}, session: {})",
+        env!("CARGO_PKG_VERSION"),
+        config.model,
+        thinking_info,
+        mcp_info,
+        session.short_id()
+    );
+    eprintln!("Type your message. Press Ctrl+D to exit.\n");
+
+    // Set terminal title (TTY only)
+    if stderr_is_tty {
+        set_terminal_title(&format!("chet — {}", session.short_id()));
+    }
+
     let mut plan_mode = false;
     let mut auto_compact_failures: u32 = 0;
     const AUTO_COMPACT_THRESHOLD: f64 = 80.0;
     const AUTO_COMPACT_MAX_FAILURES: u32 = 3;
+    let mut first_iteration = true;
 
     loop {
         let prompt = if plan_mode { "plan> " } else { "> " };
 
-        // Suspend status line before line editor
-        if let Some(sl) = &status_line {
+        // Suspend status line before line editor (skip first — already suspended above)
+        if first_iteration {
+            first_iteration = false;
+        } else if let Some(sl) = &status_line {
             sl.lock().unwrap().suspend();
         }
 
@@ -188,20 +192,20 @@ pub(crate) async fn repl(ctx: ReplContext<'_>, startup: ReplStartup) -> Result<(
             ReadLineResult::Line(line) => {
                 // Resume status line after line editor returns
                 if let Some(sl) = &status_line {
-                    sl.lock().unwrap().resume();
+                    resume_status_line(sl);
                 }
                 line
             }
             ReadLineResult::Eof => {
                 if let Some(sl) = &status_line {
-                    sl.lock().unwrap().resume();
+                    resume_status_line(sl);
                 }
                 eprintln!();
                 break;
             }
             ReadLineResult::Interrupted => {
                 if let Some(sl) = &status_line {
-                    sl.lock().unwrap().resume();
+                    resume_status_line(sl);
                 }
                 continue;
             }

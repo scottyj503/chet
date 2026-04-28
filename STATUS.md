@@ -120,7 +120,7 @@ Add AWS Bedrock and Google Vertex AI support, building on the existing `Provider
 
 ## Test Summary
 
-- 494 unit tests passing (31 api, 25 config, 16 core/agent+subagent+worktree, 59 tools, 55 permissions, 58 session, 37 types, 153 terminal, 15 cli, 29 mcp, 12 bedrock, 4 vertex)
+- 504 unit tests passing (31 api, 25 config, 16 core/agent+subagent+worktree, 59 tools, 55 permissions, 58 session, 37 types, 159 terminal, 15 cli, 29 mcp, 12 bedrock, 4 vertex)
   - 10 agent integration tests (4 cancellation + 1 multi-tool-use + 1 plan-mode-blocking + 1 subagent-e2e + 1 compaction-state + 1 parallel-failure-isolation + 1 mixed-parallel-sequential)
   - 7 additional ignored tests (worktree: require git + filesystem, run with `--ignored`)
 - 6 SSE integration tests (mock SSE pipeline, run with `cargo test -p chet-api --test stream_integration -- --ignored`)
@@ -129,6 +129,7 @@ Add AWS Bedrock and Google Vertex AI support, building on the existing `Provider
 - 1 pipe mode integration test (ANSI-free output, run with `cargo test -p chet --test pipe_mode -- --ignored`)
 - 3 MCP end-to-end tests (Python MCP server, run with `cargo test -p chet-mcp --test mcp_e2e -- --ignored`)
 - 3 session round-trip tests (filesystem, run with `cargo test -p chet-session --test session_roundtrip -- --ignored`)
+- 4 statusline integration tests (vt100 terminal emulator, run with `cargo test -p chet-terminal --test statusline_integration`)
 - Zero clippy warnings
 - `cargo run --bin chet -- --help` and `--version` working
 

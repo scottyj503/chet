@@ -350,7 +350,11 @@ async fn open_editor(path: &std::path::Path, status_line: &Option<Arc<Mutex<Stat
 
     // Resume status line
     if let Some(sl) = status_line {
-        sl.lock().unwrap().resume();
+        let mut guard = sl.lock().unwrap();
+        if let Some(row) = chet_terminal::cursor_row() {
+            guard.set_cursor_row(row);
+        }
+        guard.resume();
     }
 
     match status {
