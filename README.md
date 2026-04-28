@@ -87,7 +87,7 @@ chet [OPTIONS]
 
 Options:
   -p, --print <PROMPT>                 Send a single prompt and print the response
-      --model <MODEL>                  Model to use (default: claude-sonnet-4-5-20250929)
+      --model <MODEL>                  Model to use (default: claude-opus-4-6)
       --max-tokens <MAX_TOKENS>        Maximum tokens in the response
       --api-key <API_KEY>              API key (overrides ANTHROPIC_API_KEY)
       --auth-token <TOKEN>             Auth token for Bearer auth (overrides ANTHROPIC_AUTH_TOKEN)
@@ -161,8 +161,8 @@ Create `~/.chet/config.toml`:
 # memory_dir = "/custom/path/to/memory"  # default: ~/.chet/memory/
 
 [api]
-model = "claude-sonnet-4-5-20250929"
-max_tokens = 64000
+model = "claude-opus-4-6"
+max_tokens = 128000
 # api_key = "sk-ant-..."    # prefer ANTHROPIC_API_KEY env var
 # auth_token = "token-..."  # prefer ANTHROPIC_AUTH_TOKEN env var (Bearer auth)
 # thinking_budget = 10000  # enable extended thinking

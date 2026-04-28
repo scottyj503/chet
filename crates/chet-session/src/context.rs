@@ -189,11 +189,12 @@ fn estimate_message_tokens(msg: &Message) -> u64 {
 
 /// Look up the context window size for a model.
 fn model_context_window(model: &str) -> u64 {
-    let model_lower = model.to_lowercase();
-    if model_lower.contains("claude") {
+    if model.contains("opus") {
+        1_000_000
+    } else if model.contains("sonnet") || model.contains("haiku") {
         200_000
     } else {
-        128_000 // sensible default
+        200_000
     }
 }
 
@@ -254,8 +255,15 @@ mod tests {
     }
 
     #[test]
-    fn model_detection_claude() {
+    fn model_detection_opus() {
         let tracker = ContextTracker::new("claude-opus-4-6");
+        let info = tracker.estimate(&[], None);
+        assert_eq!(info.context_window, 1_000_000);
+    }
+
+    #[test]
+    fn model_detection_sonnet() {
+        let tracker = ContextTracker::new("claude-sonnet-4-5-20250929");
         let info = tracker.estimate(&[], None);
         assert_eq!(info.context_window, 200_000);
     }
@@ -264,7 +272,7 @@ mod tests {
     fn model_detection_default() {
         let tracker = ContextTracker::new("some-unknown-model");
         let info = tracker.estimate(&[], None);
-        assert_eq!(info.context_window, 128_000);
+        assert_eq!(info.context_window, 200_000);
     }
 
     #[test]

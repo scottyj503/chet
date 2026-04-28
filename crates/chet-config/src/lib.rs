@@ -12,7 +12,7 @@ use std::path::PathBuf;
 pub const DEFAULT_API_BASE_URL: &str = "https://api.anthropic.com";
 
 /// The default model to use.
-pub const DEFAULT_MODEL: &str = "claude-sonnet-4-5-20250929";
+pub const DEFAULT_MODEL: &str = "claude-opus-4-6";
 
 /// The default max tokens for a response (before model-specific clamping).
 pub const DEFAULT_MAX_TOKENS: u32 = 128_000;
