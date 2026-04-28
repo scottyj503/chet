@@ -101,7 +101,9 @@ fn repl_full_cycle_cursor_tracking() {
     let buf = Arc::new(Mutex::new(Vec::new()));
     let writer = CaptureWriter(buf.clone());
 
-    let mut sl = StatusLine::new_with_writer(test_data(), 80, 24, Box::new(writer.clone()));
+    // Use 120 cols to avoid status line autowrap at the terminal edge,
+    // which can cause a scroll on some VT implementations (seen on Windows CI).
+    let mut sl = StatusLine::new_with_writer(test_data(), 120, 24, Box::new(writer.clone()));
 
     // Startup: install + suspend + banner
     sl.install();
@@ -127,10 +129,8 @@ fn repl_full_cycle_cursor_tracking() {
     // Second prompt
     let _ = write!(writer.clone(), "> ");
 
-    // Verify final screen state — check content ordering rather than exact rows,
-    // because status line autowrap at the terminal edge can cause a 1-row scroll
-    // on some VT implementations.
-    let parser = screen_from(&buf.lock().unwrap(), 24, 80);
+    // Verify final screen state — check content ordering rather than exact rows.
+    let parser = screen_from(&buf.lock().unwrap(), 24, 120);
     let screen = parser.screen();
     let full = screen.contents();
 
